@@ -49,6 +49,29 @@ export default function Home() {
         <span className="text-sm font-bold text-[#c4b894] tracking-[0.15em]">
           DOGFIGHT
         </span>
+
+        {/* P0 health bar */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-[#c4a050]">P0</span>
+          <div className="w-24 h-3 bg-[#2a2015] rounded-sm border border-[#3a3526] overflow-hidden">
+            <div
+              className="h-full bg-[#c4a050] transition-all duration-200"
+              style={{ width: `${(currentFrame.fighters[0].hp / 3) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* P1 health bar */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-[#b83030]">P1</span>
+          <div className="w-24 h-3 bg-[#2a2015] rounded-sm border border-[#3a3526] overflow-hidden">
+            <div
+              className="h-full bg-[#b83030] transition-all duration-200"
+              style={{ width: `${(currentFrame.fighters[1].hp / 3) * 100}%` }}
+            />
+          </div>
+        </div>
+
         <span className="text-xs text-[#6b5a40]">
           {totalFrames > 0
             ? `Frame ${currentFrameIndex + 1}/${totalFrames}`

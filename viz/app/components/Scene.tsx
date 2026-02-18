@@ -75,7 +75,6 @@ function SceneContent({ frame, trailFrames }: SceneProps) {
         <Fighter
           state={frame.fighters[0]}
           color="#c4a050"
-          label="P0"
           trail={trails[0]}
         />
       )}
@@ -84,7 +83,6 @@ function SceneContent({ frame, trailFrames }: SceneProps) {
         <Fighter
           state={frame.fighters[1]}
           color="#b83030"
-          label="P1"
           trail={trails[1]}
         />
       )}

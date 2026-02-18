@@ -1,22 +1,17 @@
 "use client";
 
-import { useRef, useMemo } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useMemo } from "react";
 import * as THREE from "three";
-import { Text, Line } from "@react-three/drei";
+import { Line } from "@react-three/drei";
 import type { FighterState } from "../hooks/useMatch";
 
 interface FighterProps {
   state: FighterState;
   color: string;
-  label: string;
   trail: THREE.Vector3[];
 }
 
-export default function Fighter({ state, color, label, trail }: FighterProps) {
-  const groupRef = useRef<THREE.Group>(null);
-  const propRef = useRef<THREE.Group>(null);
-
+export default function Fighter({ state, color, trail }: FighterProps) {
   // When facing left, mirror horizontally and adjust rotation so wings stay on top
   const facingLeft = Math.cos(state.yaw) < 0;
   const adjustedYaw = facingLeft ? Math.PI - state.yaw : state.yaw;
@@ -25,13 +20,6 @@ export default function Fighter({ state, color, label, trail }: FighterProps) {
     (): [number, number, number] => [0, 0, adjustedYaw],
     [adjustedYaw]
   );
-
-  // Spin the propeller
-  useFrame((_, delta) => {
-    if (propRef.current && state.alive) {
-      propRef.current.rotation.z += 25 * delta;
-    }
-  });
 
   // Trail points — convert to relative coords (subtract current fighter position)
   const trailPoints =
@@ -42,115 +30,110 @@ export default function Fighter({ state, color, label, trail }: FighterProps) {
       : null;
 
   // --- Shape definitions ---
-
-  // Fuselage — aerodynamic body: rounded nose, widest at cockpit, tapering to tail
   const fuselage = useMemo(() => {
     const s = new THREE.Shape();
-    s.moveTo(9, 0);
-    s.quadraticCurveTo(9.5, 1.8, 6, 2.0);
-    s.lineTo(2, 2.2);
-    s.lineTo(-4, 1.8);
-    s.lineTo(-7, 1.2);
-    s.quadraticCurveTo(-9.5, 0.6, -10, 0.3);
-    s.lineTo(-10, -0.3);
-    s.quadraticCurveTo(-9.5, -0.6, -7, -1.2);
-    s.lineTo(-4, -1.8);
-    s.lineTo(2, -2.2);
-    s.lineTo(6, -2.0);
-    s.quadraticCurveTo(9.5, -1.8, 9, 0);
+    s.moveTo(-13.4, 0);
+    s.quadraticCurveTo(-12.8, 1.2, -10.2, 1.8);
+    s.lineTo(-2.5, 2.2);
+    s.quadraticCurveTo(4.8, 2.0, 8.7, 1.2);
+    s.quadraticCurveTo(11.7, 0.4, 12.6, 0);
+    s.quadraticCurveTo(11.7, -0.4, 8.7, -1.2);
+    s.quadraticCurveTo(4.8, -2.0, -2.5, -2.2);
+    s.lineTo(-10.2, -1.8);
+    s.quadraticCurveTo(-12.8, -1.2, -13.4, 0);
+    s.closePath();
     return s;
   }, []);
 
-  // Fuselage outline — slightly larger for stroke effect
   const fuselageOutline = useMemo(() => {
     const s = new THREE.Shape();
-    const o = 0.4;
-    s.moveTo(9 + o, 0);
-    s.quadraticCurveTo(9.5 + o, 1.8 + o, 6, 2.0 + o);
-    s.lineTo(2, 2.2 + o);
-    s.lineTo(-4, 1.8 + o);
-    s.lineTo(-7, 1.2 + o);
-    s.quadraticCurveTo(-9.5 - o, 0.6 + o, -10 - o, 0.3 + o);
-    s.lineTo(-10 - o, -0.3 - o);
-    s.quadraticCurveTo(-9.5 - o, -0.6 - o, -7, -1.2 - o);
-    s.lineTo(-4, -1.8 - o);
-    s.lineTo(2, -2.2 - o);
-    s.lineTo(6, -2.0 - o);
-    s.quadraticCurveTo(9.5 + o, -1.8 - o, 9 + o, 0);
-    return s;
-  }, []);
-
-  // Engine cowling — darker overlay on nose
-  const cowling = useMemo(() => {
-    const s = new THREE.Shape();
-    s.moveTo(9, 0);
-    s.quadraticCurveTo(9.5, 1.8, 6, 2.0);
-    s.lineTo(5, 2.0);
-    s.lineTo(5, -2.0);
-    s.lineTo(6, -2.0);
-    s.quadraticCurveTo(9.5, -1.8, 9, 0);
-    return s;
-  }, []);
-
-  // Upper wing — wider, airfoil shape with rounded tips
-  const upperWing = useMemo(() => {
-    const s = new THREE.Shape();
-    s.moveTo(-5, 0);
-    s.quadraticCurveTo(-5, 0.6, -4.5, 0.8);
-    s.lineTo(6, 1.2);
-    s.quadraticCurveTo(7, 1.2, 7, 0.6);
-    s.lineTo(7, 0);
-    s.quadraticCurveTo(7, -0.3, 6, -0.3);
-    s.lineTo(-4.5, -0.3);
-    s.quadraticCurveTo(-5, -0.3, -5, 0);
-    return s;
-  }, []);
-
-  // Lower wing — slightly shorter
-  const lowerWing = useMemo(() => {
-    const s = new THREE.Shape();
-    s.moveTo(-4, 0);
-    s.quadraticCurveTo(-4, 0.5, -3.5, 0.7);
-    s.lineTo(5, 1.0);
-    s.quadraticCurveTo(6, 1.0, 6, 0.5);
-    s.lineTo(6, 0);
-    s.quadraticCurveTo(6, -0.3, 5, -0.3);
-    s.lineTo(-3.5, -0.3);
-    s.quadraticCurveTo(-4, -0.3, -4, 0);
-    return s;
-  }, []);
-
-  // Tail fin — curved vertical rudder
-  const tailFin = useMemo(() => {
-    const s = new THREE.Shape();
-    s.moveTo(-8, 1.0);
-    s.quadraticCurveTo(-9, 3.5, -10.5, 4.2);
-    s.lineTo(-11, 4.0);
-    s.quadraticCurveTo(-10.5, 2.5, -10, 1.5);
-    s.lineTo(-9, 0.5);
+    const o = 0.5;
+    s.moveTo(-13.4 - o, 0);
+    s.quadraticCurveTo(-12.8 - o, 1.2 + o, -10.2, 1.8 + o);
+    s.lineTo(-2.5, 2.2 + o);
+    s.quadraticCurveTo(4.8 + o, 2.0 + o, 8.9 + o, 1.3 + o);
+    s.quadraticCurveTo(12.2 + o, 0.45 + o, 13.2 + o, 0);
+    s.quadraticCurveTo(12.2 + o, -0.45 - o, 8.9 + o, -1.3 - o);
+    s.quadraticCurveTo(4.8 + o, -2.0 - o, -2.5, -2.2 - o);
+    s.lineTo(-10.2, -1.8 - o);
+    s.quadraticCurveTo(-12.8 - o, -1.2 - o, -13.4 - o, 0);
     s.closePath();
     return s;
   }, []);
 
-  // Horizontal stabilizer — tail airfoil
-  const tailStab = useMemo(() => {
+  const cockpit = useMemo(() => {
     const s = new THREE.Shape();
-    s.moveTo(-8, 0.2);
-    s.lineTo(-12, 0.8);
-    s.quadraticCurveTo(-12.5, 0.6, -12.5, 0.4);
-    s.lineTo(-12, 0);
-    s.lineTo(-8, -0.3);
+    s.absellipse(0, 0, 1.3, 0.62, 0, Math.PI * 2, false, 0);
     s.closePath();
     return s;
   }, []);
 
-  // Windscreen — angled cockpit glass
-  const windscreen = useMemo(() => {
+  const topWing = useMemo(() => {
     const s = new THREE.Shape();
-    s.moveTo(2, 2.2);
-    s.lineTo(3.5, 4.0);
-    s.lineTo(1.5, 4.0);
-    s.lineTo(0.5, 2.2);
+    s.moveTo(-3.6, 0);
+    s.quadraticCurveTo(-3.9, 0.05, -4.0, 0.25);
+    s.lineTo(-4.0, 0.55);
+    s.quadraticCurveTo(-3.9, 0.8, -3.6, 0.88);
+    s.lineTo(4.8, 0.88);
+    s.quadraticCurveTo(5.1, 0.8, 5.2, 0.55);
+    s.lineTo(5.2, 0.25);
+    s.quadraticCurveTo(5.1, 0.05, 4.8, 0);
+    s.closePath();
+    return s;
+  }, []);
+
+  const bottomWing = useMemo(() => {
+    const s = new THREE.Shape();
+    s.moveTo(-3.0, 0);
+    s.quadraticCurveTo(-3.3, 0.04, -3.4, 0.22);
+    s.lineTo(-3.4, 0.46);
+    s.quadraticCurveTo(-3.3, 0.66, -3.0, 0.72);
+    s.lineTo(4.2, 0.72);
+    s.quadraticCurveTo(4.5, 0.66, 4.6, 0.46);
+    s.lineTo(4.6, 0.22);
+    s.quadraticCurveTo(4.5, 0.04, 4.2, 0);
+    s.closePath();
+    return s;
+  }, []);
+
+  const tailPlane = useMemo(() => {
+    const s = new THREE.Shape();
+    s.moveTo(-11.8, 0.1);
+    s.quadraticCurveTo(-14.3, 0.2, -15.1, 1.2);
+    s.lineTo(-15.1, 2.0);
+    s.quadraticCurveTo(-14.3, 3.0, -11.8, 3.1);
+    s.lineTo(-9.4, 3.1);
+    s.quadraticCurveTo(-9.1, 1.7, -9.4, 0.1);
+    s.closePath();
+    return s;
+  }, []);
+
+  const rudder = useMemo(() => {
+    const s = new THREE.Shape();
+    s.moveTo(-12.2, 2.5);
+    s.quadraticCurveTo(-12.6, 4.8, -10.7, 5.7);
+    s.lineTo(-9.8, 5.4);
+    s.quadraticCurveTo(-9.9, 3.9, -9.5, 2.5);
+    s.closePath();
+    return s;
+  }, []);
+
+  const nosePanel = useMemo(() => {
+    const s = new THREE.Shape();
+    s.moveTo(7.4, -1.8);
+    s.lineTo(9.7, -1.8);
+    s.lineTo(9.7, 1.8);
+    s.lineTo(7.4, 1.8);
+    s.closePath();
+    return s;
+  }, []);
+
+  const tailBand = useMemo(() => {
+    const s = new THREE.Shape();
+    s.moveTo(-8.5, -1.8);
+    s.lineTo(-7.0, -1.8);
+    s.lineTo(-7.0, 1.8);
+    s.lineTo(-8.5, 1.8);
     s.closePath();
     return s;
   }, []);
@@ -158,34 +141,50 @@ export default function Fighter({ state, color, label, trail }: FighterProps) {
   // --- Color tiers ---
   const fuselageColor = useMemo(() => {
     const c = new THREE.Color(color);
-    c.multiplyScalar(0.75);
+    c.multiplyScalar(0.72);
     return `#${c.getHexString()}`;
   }, [color]);
 
-  const darkColor = useMemo(() => {
+  const wingColor = useMemo(() => {
+    const c = new THREE.Color(color);
+    c.multiplyScalar(0.92);
+    return `#${c.getHexString()}`;
+  }, [color]);
+
+  const wingShadowColor = useMemo(() => {
     const c = new THREE.Color(color);
     c.multiplyScalar(0.5);
     return `#${c.getHexString()}`;
   }, [color]);
 
-  const cowlingColor = useMemo(() => {
+  const panelColor = useMemo(() => {
     const c = new THREE.Color(color);
-    c.multiplyScalar(0.45);
+    c.multiplyScalar(0.4);
+    return `#${c.getHexString()}`;
+  }, [color]);
+
+  const inkColor = useMemo(() => {
+    const c = new THREE.Color(color);
+    c.multiplyScalar(0.22);
     return `#${c.getHexString()}`;
   }, [color]);
 
   const outlineColor = useMemo(() => {
     const c = new THREE.Color(color);
-    c.multiplyScalar(0.25);
+    c.multiplyScalar(0.2);
     return `#${c.getHexString()}`;
   }, [color]);
 
-  const hpSegments = [0, 1, 2];
+  const accentColor = useMemo(() => {
+    const c = new THREE.Color(color);
+    c.lerp(new THREE.Color("#e6c26a"), 0.35);
+    return `#${c.getHexString()}`;
+  }, [color]);
 
   if (!state.alive) {
     // Wreckage — small X with smoke
     return (
-      <group position={[state.x, state.y, 1]} scale={[3.5, 3.5, 1]}>
+      <group position={[state.x, state.y, 1]} scale={[1.75, 1.75, 1]}>
         <Line
           points={[
             [-5, -5, 0],
@@ -217,170 +216,164 @@ export default function Fighter({ state, color, label, trail }: FighterProps) {
   return (
     <group position={[state.x, state.y, 1]}>
       {/* Plane body — scaleX only applies here */}
-      <group scale={[3.5 * scaleX, 3.5, 1]}>
-        <group ref={groupRef} rotation={rotation}>
-          {/* Landing gear */}
-          {/* Gear struts */}
-          <Line
-            points={[
-              [2, -2.2, 0.10],
-              [3.5, -5.5, 0.10],
-            ]}
-            color="#5c4a32"
-            lineWidth={1.5}
-          />
-          <Line
-            points={[
-              [0, -2.2, 0.10],
-              [3.5, -5.5, 0.10],
-            ]}
-            color="#5c4a32"
-            lineWidth={1.5}
-          />
-          <Line
-            points={[
-              [2, -2.2, 0.10],
-              [0.5, -5.5, 0.10],
-            ]}
-            color="#5c4a32"
-            lineWidth={1.5}
-          />
-          <Line
-            points={[
-              [0, -2.2, 0.10],
-              [0.5, -5.5, 0.10],
-            ]}
-            color="#5c4a32"
-            lineWidth={1.5}
-          />
-          {/* Axle */}
-          <Line
-            points={[
-              [0.5, -5.5, 0.11],
-              [3.5, -5.5, 0.11],
-            ]}
-            color="#5c4a32"
-            lineWidth={1.5}
-          />
-          {/* Wheels */}
-          <mesh position={[3.5, -5.5, 0.12]}>
-            <circleGeometry args={[1.0, 10]} />
-            <meshBasicMaterial color="#2a2015" side={THREE.DoubleSide} />
-          </mesh>
-          <mesh position={[0.5, -5.5, 0.12]}>
-            <circleGeometry args={[1.0, 10]} />
-            <meshBasicMaterial color="#2a2015" side={THREE.DoubleSide} />
-          </mesh>
-
+      <group scale={[1.75 * scaleX, 1.75, 1]}>
+        <group rotation={rotation}>
           {/* Lower wing */}
-          <mesh position={[0, -3.0, 0.15]}>
-            <shapeGeometry args={[lowerWing]} />
-            <meshBasicMaterial color={color} side={THREE.DoubleSide} />
+          <mesh position={[0.5, -1.55, 0.08]}>
+            <shapeGeometry args={[bottomWing]} />
+            <meshBasicMaterial color={wingShadowColor} side={THREE.DoubleSide} />
           </mesh>
-
-          {/* Fuselage outline (behind body) */}
-          <mesh position={[0, 0, 0.18]}>
-            <shapeGeometry args={[fuselageOutline]} />
-            <meshBasicMaterial color={outlineColor} side={THREE.DoubleSide} />
+          <mesh position={[0.62, -1.42, 0.1]}>
+            <shapeGeometry args={[bottomWing]} />
+            <meshBasicMaterial color={wingColor} side={THREE.DoubleSide} />
           </mesh>
 
           {/* Fuselage body */}
-          <mesh position={[0, 0, 0.20]}>
+          <mesh position={[0, 0, 0.14]}>
+            <shapeGeometry args={[fuselageOutline]} />
+            <meshBasicMaterial color={outlineColor} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[0, 0, 0.16]}>
             <shapeGeometry args={[fuselage]} />
             <meshBasicMaterial color={fuselageColor} side={THREE.DoubleSide} />
           </mesh>
-
-          {/* Engine cowling */}
-          <mesh position={[0, 0, 0.22]}>
-            <shapeGeometry args={[cowling]} />
-            <meshBasicMaterial color={cowlingColor} side={THREE.DoubleSide} />
+          <mesh position={[0, 0, 0.18]}>
+            <shapeGeometry args={[nosePanel]} />
+            <meshBasicMaterial color={panelColor} side={THREE.DoubleSide} />
           </mesh>
-
-          {/* Horizontal stabilizer */}
-          <mesh position={[0, 0, 0.24]}>
-            <shapeGeometry args={[tailStab]} />
-            <meshBasicMaterial
-              color={color}
-              side={THREE.DoubleSide}
-              transparent
-              opacity={0.85}
-            />
+          <mesh position={[0, 0, 0.2]}>
+            <shapeGeometry args={[tailBand]} />
+            <meshBasicMaterial color={accentColor} side={THREE.DoubleSide} />
           </mesh>
-
-          {/* Cross-wire rigging (X pattern between struts) */}
           <Line
             points={[
-              [-2, -3.0, 0.24],
-              [2, 4.5, 0.24],
+              [-11.8, 0, 0.22],
+              [9.2, 0, 0.22],
             ]}
-            color="#8a7a60"
-            lineWidth={0.5}
-            transparent
-            opacity={0.5}
-          />
-          <Line
-            points={[
-              [2, -3.0, 0.24],
-              [-2, 4.5, 0.24],
-            ]}
-            color="#8a7a60"
-            lineWidth={0.5}
-            transparent
-            opacity={0.5}
+            color={inkColor}
+            lineWidth={1.4}
           />
 
-          {/* Interplane struts */}
+          {/* Tail section */}
+          <mesh position={[0, -0.3, 0.24]}>
+            <shapeGeometry args={[tailPlane]} />
+            <meshBasicMaterial color={wingColor} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[0, -0.15, 0.26]}>
+            <shapeGeometry args={[rudder]} />
+            <meshBasicMaterial color={panelColor} side={THREE.DoubleSide} />
+          </mesh>
+
+          {/* Upper wing and cabane struts */}
+          <mesh position={[0.25, 1.35, 0.3]}>
+            <shapeGeometry args={[topWing]} />
+            <meshBasicMaterial color={wingShadowColor} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[0.38, 1.48, 0.32]}>
+            <shapeGeometry args={[topWing]} />
+            <meshBasicMaterial color={wingColor} side={THREE.DoubleSide} />
+          </mesh>
           <Line
             points={[
-              [2.5, -3.0, 0.25],
-              [2.5, 4.5, 0.25],
+              [-0.95, -0.95, 0.24],
+              [-0.95, 1.9, 0.24],
             ]}
             color="#5c4a32"
             lineWidth={2}
           />
           <Line
             points={[
-              [-2.5, -3.0, 0.25],
-              [-2.5, 4.5, 0.25],
+              [2.25, -0.95, 0.24],
+              [2.25, 1.9, 0.24],
             ]}
             color="#5c4a32"
             lineWidth={2}
           />
+          <Line
+            points={[
+              [-0.95, -0.95, 0.25],
+              [2.25, 1.9, 0.25],
+            ]}
+            color="#8e7f66"
+            lineWidth={0.6}
+            transparent
+            opacity={0.6}
+          />
+          <Line
+            points={[
+              [2.25, -0.95, 0.25],
+              [-0.95, 1.9, 0.25],
+            ]}
+            color="#8e7f66"
+            lineWidth={0.6}
+            transparent
+            opacity={0.6}
+          />
 
-          {/* Upper wing */}
-          <mesh position={[0, 3.5, 0.28]}>
-            <shapeGeometry args={[upperWing]} />
-            <meshBasicMaterial color={color} side={THREE.DoubleSide} />
+          {/* Canopy and pilot */}
+          <mesh position={[0.8, 0.58, 0.34]}>
+            <shapeGeometry args={[cockpit]} />
+            <meshBasicMaterial color="#24180f" side={THREE.DoubleSide} />
           </mesh>
 
-          {/* Tail fin (vertical rudder) */}
-          <mesh position={[0, 0, 0.35]}>
-            <shapeGeometry args={[tailFin]} />
-            <meshBasicMaterial color={darkColor} side={THREE.DoubleSide} />
+          {/* Landing gear */}
+          <Line
+            points={[
+              [0.65, -2.35, 0.15],
+              [3.0, -5.95, 0.15],
+            ]}
+            color="#5c4a32"
+            lineWidth={1.5}
+          />
+          <Line
+            points={[
+              [-0.95, -2.35, 0.15],
+              [1.2, -5.95, 0.15],
+            ]}
+            color="#5c4a32"
+            lineWidth={1.5}
+          />
+          <Line
+            points={[
+              [1.2, -5.95, 0.16],
+              [3.0, -5.95, 0.16],
+            ]}
+            color="#5c4a32"
+            lineWidth={1.6}
+          />
+          <mesh position={[3.0, -5.95, 0.17]}>
+            <circleGeometry args={[1.02, 16]} />
+            <meshBasicMaterial color="#2d1f12" side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[1.2, -5.95, 0.17]}>
+            <circleGeometry args={[1.02, 16]} />
+            <meshBasicMaterial color="#2d1f12" side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[3.0, -5.95, 0.18]}>
+            <circleGeometry args={[0.7, 14]} />
+            <meshBasicMaterial color="#5c4a32" side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[1.2, -5.95, 0.18]}>
+            <circleGeometry args={[0.7, 14]} />
+            <meshBasicMaterial color="#5c4a32" side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[3.0, -5.95, 0.19]}>
+            <circleGeometry args={[0.32, 10]} />
+            <meshBasicMaterial color="#8f7652" side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[1.2, -5.95, 0.19]}>
+            <circleGeometry args={[0.32, 10]} />
+            <meshBasicMaterial color="#8f7652" side={THREE.DoubleSide} />
           </mesh>
 
-          {/* Windscreen */}
-          <mesh position={[0, 0, 0.40]}>
-            <shapeGeometry args={[windscreen]} />
-            <meshBasicMaterial
-              color="#2a1a0a"
-              side={THREE.DoubleSide}
-              transparent
-              opacity={0.6}
-            />
+          {/* Nose and prop */}
+          <mesh position={[11.1, 0, 0.4]}>
+            <ringGeometry args={[0.9, 1.4, 16]} />
+            <meshBasicMaterial color="#8f7652" side={THREE.DoubleSide} />
           </mesh>
-
-          {/* Pilot head */}
-          <mesh position={[1.5, 3.8, 0.42]}>
-            <circleGeometry args={[1.0, 8]} />
-            <meshBasicMaterial color="#2a1a0a" side={THREE.DoubleSide} />
-          </mesh>
-
-          {/* Propeller */}
-          <group ref={propRef} position={[9.5, 0, 0.45]}>
-            {/* Blade 1 */}
+          <group position={[11.55, 0, 0.42]} rotation={[0, 0, Math.PI / 8]}>
             <mesh>
-              <planeGeometry args={[0.8, 5.5]} />
+              <planeGeometry args={[0.65, 6.3]} />
               <meshBasicMaterial
                 color="#4a3a20"
                 side={THREE.DoubleSide}
@@ -388,9 +381,8 @@ export default function Fighter({ state, color, label, trail }: FighterProps) {
                 opacity={0.85}
               />
             </mesh>
-            {/* Blade 2 */}
             <mesh rotation={[0, 0, Math.PI / 2]}>
-              <planeGeometry args={[0.8, 5.5]} />
+              <planeGeometry args={[0.65, 6.3]} />
               <meshBasicMaterial
                 color="#4a3a20"
                 side={THREE.DoubleSide}
@@ -399,41 +391,11 @@ export default function Fighter({ state, color, label, trail }: FighterProps) {
               />
             </mesh>
           </group>
-          {/* Spinner hub */}
-          <mesh position={[9.5, 0, 0.46]}>
-            <circleGeometry args={[0.7, 8]} />
+          <mesh position={[11.55, 0, 0.43]}>
+            <circleGeometry args={[0.58, 12]} />
             <meshBasicMaterial color="#4a3a20" side={THREE.DoubleSide} />
           </mesh>
         </group>
-      </group>
-
-      {/* UI group — never flipped */}
-      <group>
-        {/* HP pips */}
-        <group position={[0, 28, 0.5]}>
-          {hpSegments.map((i) => (
-            <mesh key={i} position={[(i - 1) * 5, 0, 0]}>
-              <circleGeometry args={[1.8, 6]} />
-              <meshBasicMaterial
-                color={i < state.hp ? "#8b0000" : "#2a2015"}
-                transparent
-                opacity={i < state.hp ? 0.9 : 0.35}
-              />
-            </mesh>
-          ))}
-        </group>
-
-        {/* Player label */}
-        <Text
-          position={[0, 38, 0.5]}
-          fontSize={14}
-          color="#2a2015"
-          anchorX="center"
-          anchorY="middle"
-          renderOrder={999}
-        >
-          {label}
-        </Text>
       </group>
 
       {/* Smoke trail — relative coords, no transform */}
