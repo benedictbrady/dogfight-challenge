@@ -500,14 +500,13 @@ mod tests {
         // Same continuity test but with active policies (Chaser)
         // to catch teleportation during aggressive maneuvering.
         use crate::opponents::ChaserPolicy;
-        use crate::policy::Policy;
 
         let config = MatchConfig {
             max_ticks: 600,
             ..Default::default()
         };
-        let mut p0 = ChaserPolicy;
-        let mut p1 = ChaserPolicy;
+        let mut p0 = ChaserPolicy::new();
+        let mut p1 = ChaserPolicy::new();
 
         let replay = crate::run_match(&config, &mut p0, &mut p1);
 

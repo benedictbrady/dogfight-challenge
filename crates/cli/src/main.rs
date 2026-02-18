@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 use dogfight_shared::*;
-use dogfight_sim::opponents::{ChaserPolicy, DogfighterPolicy};
+use dogfight_sim::opponents::{AcePolicy, BrawlerPolicy, ChaserPolicy, DogfighterPolicy};
 use dogfight_sim::{run_match, DoNothingPolicy, Policy};
 
 #[derive(Parser)]
@@ -69,8 +69,10 @@ enum Commands {
 /// - A path ending in ".onnx" -> falls back to DoNothingPolicy with a warning
 fn resolve_policy(name: &str) -> Box<dyn Policy> {
     match name {
-        "chaser" => Box::new(ChaserPolicy),
+        "chaser" => Box::new(ChaserPolicy::new()),
         "dogfighter" => Box::new(DogfighterPolicy::new()),
+        "ace" => Box::new(AcePolicy::new()),
+        "brawler" => Box::new(BrawlerPolicy::new()),
         "do_nothing" => Box::new(DoNothingPolicy),
         path if path.ends_with(".onnx") => {
             eprintln!(
@@ -82,7 +84,7 @@ fn resolve_policy(name: &str) -> Box<dyn Policy> {
         }
         other => {
             eprintln!(
-                "Unknown policy '{}'. Valid options: chaser, dogfighter, do_nothing, or a .onnx file path.",
+                "Unknown policy '{}'. Valid options: chaser, dogfighter, ace, brawler, do_nothing, or a .onnx file path.",
                 other
             );
             std::process::exit(1);
