@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 dogfight-shared = { path = "../shared" }
 dogfight-sim = { path = "../sim" }
+dogfight-validator = { path = "../validator" }
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
 serde = { workspace = true }

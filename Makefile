@@ -15,10 +15,11 @@ SEED ?= 42
 run:
 	cargo run -p dogfight --release -- run --p0 $(P0) --p1 $(P1) --seed $(SEED)
 
-# Start the backend WebSocket server
+# Start the backend WebSocket server (ORT_DYLIB_PATH enables neural policy)
 PORT ?= 3001
+ORT_DYLIB_PATH ?= $(shell find .venv -name 'libonnxruntime*.dylib' 2>/dev/null | head -1)
 serve:
-	cargo run -p dogfight --release -- serve --port $(PORT)
+	ORT_DYLIB_PATH=$(ORT_DYLIB_PATH) cargo run -p dogfight --release -- serve --port $(PORT)
 
 # Install viz dependencies
 viz-install:
@@ -31,7 +32,7 @@ viz:
 # Start both backend and frontend
 dev:
 	@echo "Starting backend on port $(PORT)..."
-	@cargo run -p dogfight --release -- serve --port $(PORT) &
+	@ORT_DYLIB_PATH=$(ORT_DYLIB_PATH) cargo run -p dogfight --release -- serve --port $(PORT) &
 	@sleep 1
 	@echo "Starting frontend..."
 	@cd viz && npm run dev

@@ -122,7 +122,13 @@ export function useMatch() {
             bullets: msg.bullets ?? [],
             hits: [],
           };
-          setFrames((prev) => [...prev, frame]);
+          setFrames((prev) => {
+            // Auto-start playback once we have a few frames buffered
+            if (prev.length === 10) {
+              setIsPlaying(true);
+            }
+            return [...prev, frame];
+          });
         } else if (msg.type === "result") {
           const winner =
             msg.outcome === "Player0Win" ? 0 :
