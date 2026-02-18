@@ -1,0 +1,11 @@
+[package]
+name = "dogfight-validator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dogfight-shared = { path = "../shared" }
+dogfight-sim = { path = "../sim" }
+ndarray = "0.16"
+ort = { version = "2.0.0-rc.11", features = ["load-dynamic"] }
+thiserror = "2"

@@ -1,0 +1,14 @@
+[package]
+name = "dogfight"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dogfight-shared = { path = "../shared" }
+dogfight-sim = { path = "../sim" }
+dogfight-validator = { path = "../validator" }
+dogfight-server = { path = "../server" }
+clap = { version = "4", features = ["derive"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { version = "1", features = ["full"] }
