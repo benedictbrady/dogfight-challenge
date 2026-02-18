@@ -94,8 +94,9 @@ mod tests {
         let state = SimState::new();
         let obs = state.observe(0);
 
-        // Speed should be MIN_SPEED / MAX_SPEED
-        assert!((obs.data[0] - MIN_SPEED / MAX_SPEED).abs() < 0.001);
+        // Speed should be SPAWN_SPEED / MAX_SPEED
+        let expected_speed = SimState::SPAWN_SPEED / MAX_SPEED;
+        assert!((obs.data[0] - expected_speed).abs() < 0.001);
         // HP should be 1.0 (full)
         assert!((obs.data[3] - 1.0).abs() < 0.001);
         // Gun cooldown should be 0 (ready)

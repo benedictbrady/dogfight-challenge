@@ -39,9 +39,10 @@ viz/          # Next.js + React Three Fiber visualization
 - **Arena**: X: [-500, 500] horizontal, Y: [0, 600] altitude
 - **Physics**: 120Hz tick rate. Gravity affects speed via `speed += (-GRAVITY * yaw.sin()) * DT` — climbing costs speed, diving gains it
 - **Turn rate**: Speed-dependent. Slow (40 m/s) = 4.0 rad/s, Fast (250 m/s) = 0.8 rad/s
-- **HP**: 3 hit points per fighter. 0 HP = eliminated
-- **Bullets**: 400 m/s, 0.75s lifetime, 0.5s cooldown between shots
-- **Match**: 60 seconds max (7200 ticks). Win by elimination or HP advantage at timeout
+- **HP**: 5 hit points per fighter. 0 HP = eliminated
+- **Rear-aspect armor**: Bullets from within 45° behind target glance off (no damage). Forces crossing/beam attacks.
+- **Bullets**: 400 m/s, 0.5s lifetime (~200m range), 0.75s cooldown between shots
+- **Match**: 90 seconds max (10800 ticks). Win by elimination or HP advantage at timeout
 - **Initial positions**: P0 at (-200, 300), P1 at (200, 300), both at MIN_SPEED
 
 ## Key Types
@@ -59,11 +60,13 @@ viz/          # Next.js + React Three Fiber visualization
 
 ## Built-in Opponents
 
-`do_nothing` < `chaser` < `dogfighter` (verified by tests + tournament)
+`do_nothing` < `dogfighter` < `chaser` < `ace` < `brawler` (verified by tests + tournament)
 
 - **DoNothing**: No inputs. Falls from sky.
-- **Chaser**: 30% lead pursuit, range-limited shooting, basic altitude management
-- **Dogfighter**: Full lead pursuit, bullet evasion, throttle management, dive-for-speed
+- **Chaser**: Pressure pursuit with yo-yo maneuvers, bullet evasion, crossing aim when behind
+- **Dogfighter**: Adaptive mode-switching (attack/defend/energy/disengage), crossing aim when behind
+- **Ace**: Defensive energy fighter with perpendicular break turns, high-altitude preference
+- **Brawler**: Close-range turn fighter, overshoot baiting, naturally excels with rear-aspect armor
 
 ## WebSocket Protocol
 

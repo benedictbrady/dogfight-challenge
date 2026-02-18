@@ -43,6 +43,7 @@ export interface MatchConfig {
   p0: string;
   p1: string;
   seed: number;
+  randomize_spawns?: boolean;
 }
 
 // --- Hook ---
@@ -131,7 +132,6 @@ export function useMatch() {
             reason: msg.reason ?? "",
           });
           setIsComplete(true);
-          setIsPlaying(true);
         } else if (msg.type === "error") {
           console.error("Match error:", msg.error);
         }

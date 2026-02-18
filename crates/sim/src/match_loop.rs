@@ -5,7 +5,7 @@ use crate::policy::Policy;
 
 /// Run a deterministic match between two policies.
 pub fn run_match(config: &MatchConfig, p0: &mut dyn Policy, p1: &mut dyn Policy) -> Replay {
-    let mut state = SimState::new();
+    let mut state = SimState::new_with_seed(config.seed, config.randomize_spawns);
     let mut frames = Vec::new();
     let mut action0 = Action::none();
     let mut action1 = Action::none();

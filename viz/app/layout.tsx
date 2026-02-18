@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Dogfight Visualizer",
-  description: "3D visualization for dogfight challenge matches",
+  description: "2D visualization for dogfight challenge matches",
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-[#0a0a0a] text-gray-200 antialiased">
+      <body className="bg-[#f8f8f8] text-gray-800 antialiased">
         {children}
       </body>
     </html>

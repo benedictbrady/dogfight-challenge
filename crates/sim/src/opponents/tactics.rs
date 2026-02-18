@@ -43,6 +43,9 @@ pub struct TacticalState {
     /// True if opponent is roughly behind me (they can aim at me)
     pub opponent_behind_me: bool,
 
+    /// True if firing now would be a rear-aspect shot (wasted bullet)
+    pub would_be_rear_aspect_shot: bool,
+
     // Bullet threats
     pub nearest_enemy_bullet_dist: f32,
     pub nearest_enemy_bullet_angle: f32,
@@ -105,6 +108,11 @@ pub fn extract_tactical_state(obs: &Observation) -> TacticalState {
     // Opponent is behind me if I'd need to turn > 120 deg to face them
     let opponent_behind_me = angle_off_nose.abs() > 2.0;
 
+    // Would a bullet from me be a rear-aspect shot?
+    let would_be_rear_aspect_shot = is_rear_aspect_shot(
+        rel_x, rel_y, opp_yaw, my_yaw,
+    );
+
     // Bullet threats
     let (nearest_enemy_bullet_dist, nearest_enemy_bullet_angle, enemy_bullet_threat_count) =
         compute_bullet_threats(d);
@@ -133,6 +141,7 @@ pub fn extract_tactical_state(obs: &Observation) -> TacticalState {
         altitude_advantage,
         am_behind_opponent,
         opponent_behind_me,
+        would_be_rear_aspect_shot,
         nearest_enemy_bullet_dist,
         nearest_enemy_bullet_angle,
         enemy_bullet_threat_count,
@@ -155,6 +164,60 @@ pub fn lead_aim(
     let lead_x = rel_x + opp_fwd_x * opp_speed * time_to_target * lead_factor;
     let lead_y = rel_y + opp_fwd_y * opp_speed * time_to_target * lead_factor;
     f32::atan2(lead_y, lead_x)
+}
+
+/// Crossing aim: offset aim point perpendicular to opponent's flight path.
+/// Forces beam/crossing attacks instead of tail chases.
+pub fn crossing_aim(
+    rel_x: f32,
+    rel_y: f32,
+    opp_speed: f32,
+    opp_yaw: f32,
+    distance: f32,
+    lead_factor: f32,
+) -> f32 {
+    let time_to_target = distance / BULLET_SPEED;
+    let opp_fwd_x = opp_yaw.cos();
+    let opp_fwd_y = opp_yaw.sin();
+    let lead_x = rel_x + opp_fwd_x * opp_speed * time_to_target * lead_factor;
+    let lead_y = rel_y + opp_fwd_y * opp_speed * time_to_target * lead_factor;
+
+    // Add ~60m perpendicular offset toward the closer side of opponent's flight path
+    let perp_x = -opp_fwd_y;
+    let perp_y = opp_fwd_x;
+    // Choose the side that's closer to us (dot product with our relative position)
+    let side = if (rel_x * perp_x + rel_y * perp_y) > 0.0 { 1.0 } else { -1.0 };
+    let offset = 60.0;
+
+    f32::atan2(lead_y + perp_y * offset * side, lead_x + perp_x * offset * side)
+}
+
+/// Check if firing now would produce a rear-aspect shot (bullet from behind target).
+/// Uses the same dot-product check as the physics engine.
+pub fn is_rear_aspect_shot(
+    rel_x: f32,
+    rel_y: f32,
+    opp_yaw: f32,
+    my_yaw: f32,
+) -> bool {
+    // My bullet direction = my forward vector
+    let bullet_dir_x = my_yaw.cos();
+    let bullet_dir_y = my_yaw.sin();
+
+    // Opponent's forward vector
+    let opp_fwd_x = opp_yaw.cos();
+    let opp_fwd_y = opp_yaw.sin();
+
+    // Only check if we're roughly behind them (angle to opp from our heading < 45°)
+    let angle_to_opp = f32::atan2(rel_y, rel_x);
+    let angle_off = angle_diff(angle_to_opp, my_yaw).abs();
+    if angle_off > 0.5 {
+        // We're not even aimed near them, rear-aspect check not relevant
+        return false;
+    }
+
+    let dot = bullet_dir_x * opp_fwd_x + bullet_dir_y * opp_fwd_y;
+    dot > REAR_ASPECT_CONE.cos()
 }
 
 /// Shortest angular difference (signed), result in [-PI, PI].
@@ -230,6 +293,19 @@ pub fn compute_bullet_threats(obs: &[f32; OBS_SIZE]) -> (f32, f32, u32) {
     (nearest_dist, nearest_angle, threat_count)
 }
 
+/// Stall avoidance: reduce yaw input and increase throttle when approaching stall speed.
+/// Returns (adjusted_yaw_input, min_throttle).
+pub fn stall_avoidance(speed: f32, yaw_input: f32) -> (f32, f32) {
+    if speed < STALL_SPEED + 15.0 {
+        let urgency = ((STALL_SPEED + 15.0 - speed) / 15.0).clamp(0.0, 1.0);
+        let max_yaw = 1.0 - urgency * 0.7;
+        let min_throttle = urgency * 0.8;
+        (yaw_input.clamp(-max_yaw, max_yaw), min_throttle)
+    } else {
+        (yaw_input, 0.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,7 +354,7 @@ mod tests {
         assert!((ts.distance - 400.0).abs() < 10.0);
         // Altitude should be ~300
         assert!((ts.altitude - 300.0).abs() < 10.0);
-        // Speed should be MIN_SPEED
-        assert!((ts.my_speed - MIN_SPEED).abs() < 1.0);
+        // Speed should be SPAWN_SPEED
+        assert!((ts.my_speed - SimState::SPAWN_SPEED).abs() < 1.0);
     }
 }

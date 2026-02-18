@@ -1,5 +1,8 @@
 use dogfight_shared::*;
 use glam::Vec2;
+use rand::Rng;
+use rand_pcg::Pcg64;
+use rand::SeedableRng;
 
 /// Full simulation state for a 1v1 match.
 #[derive(Debug, Clone)]
@@ -11,24 +14,77 @@ pub struct SimState {
 }
 
 impl SimState {
+    /// Default initial speed: above stall threshold for safe spawn.
+    pub const SPAWN_SPEED: f32 = 50.0;
+
     pub fn new() -> Self {
         Self {
             fighters: [
                 FighterState {
                     position: Vec2::new(-200.0, 300.0),
                     yaw: 0.0, // facing right
-                    speed: MIN_SPEED,
+                    speed: Self::SPAWN_SPEED,
                     hp: MAX_HP,
                     gun_cooldown_ticks: 0,
                     alive: true,
+                    stall_ticks: 0,
                 },
                 FighterState {
                     position: Vec2::new(200.0, 300.0),
                     yaw: std::f32::consts::PI, // facing left
-                    speed: MIN_SPEED,
+                    speed: Self::SPAWN_SPEED,
                     hp: MAX_HP,
                     gun_cooldown_ticks: 0,
                     alive: true,
+                    stall_ticks: 0,
+                },
+            ],
+            bullets: Vec::new(),
+            tick: 0,
+            stats: MatchStats {
+                p0_hp: MAX_HP,
+                p1_hp: MAX_HP,
+                p0_hits: 0,
+                p1_hits: 0,
+                p0_shots: 0,
+                p1_shots: 0,
+            },
+        }
+    }
+
+    pub fn new_with_seed(seed: u64, randomize: bool) -> Self {
+        if !randomize {
+            return Self::new();
+        }
+
+        let mut rng = Pcg64::seed_from_u64(seed);
+        let x_offset = rng.gen_range(100.0..300.0f32);
+        let alt0 = rng.gen_range(150.0..450.0f32);
+        let alt1 = rng.gen_range(150.0..450.0f32);
+        let yaw0 = rng.gen_range(-std::f32::consts::PI..std::f32::consts::PI);
+        let yaw1 = rng.gen_range(-std::f32::consts::PI..std::f32::consts::PI);
+        let speed0 = rng.gen_range((MIN_SPEED + 15.0)..80.0f32);
+        let speed1 = rng.gen_range((MIN_SPEED + 15.0)..80.0f32);
+
+        Self {
+            fighters: [
+                FighterState {
+                    position: Vec2::new(-x_offset, alt0),
+                    yaw: yaw0,
+                    speed: speed0,
+                    hp: MAX_HP,
+                    gun_cooldown_ticks: 0,
+                    alive: true,
+                    stall_ticks: 0,
+                },
+                FighterState {
+                    position: Vec2::new(x_offset, alt1),
+                    yaw: yaw1,
+                    speed: speed1,
+                    hp: MAX_HP,
+                    gun_cooldown_ticks: 0,
+                    alive: true,
+                    stall_ticks: 0,
                 },
             ],
             bullets: Vec::new(),
@@ -106,8 +162,56 @@ impl SimState {
     fn step_fighter(&mut self, idx: usize, action: &Action) {
         let f = &mut self.fighters[idx];
 
-        // Compute turn rate at current speed
-        let turn_rate = turn_rate_at_speed(f.speed);
+        // --- Stall handling ---
+        if f.stall_ticks > 0 {
+            f.stall_ticks -= 1;
+
+            // Rotate nose toward straight down (-PI/2)
+            let target = -std::f32::consts::FRAC_PI_2;
+            let diff = {
+                let mut d = target - f.yaw;
+                while d > std::f32::consts::PI { d -= 2.0 * std::f32::consts::PI; }
+                while d < -std::f32::consts::PI { d += 2.0 * std::f32::consts::PI; }
+                d
+            };
+            let max_rot = STALL_NOSE_DOWN_RATE * DT;
+            f.yaw += diff.clamp(-max_rot, max_rot);
+            f.yaw = normalize_angle(f.yaw);
+
+            // Only gravity and drag during stall (no thrust, no yaw input)
+            f.speed += (-GRAVITY * f.yaw.sin()) * DT;
+            f.speed -= DRAG_COEFF * f.speed * DT;
+            f.speed = f.speed.clamp(MIN_SPEED, effective_max_speed(f.hp));
+
+            // Early recovery: if speed recovers above STALL_SPEED + 10, clear stall
+            if f.speed > STALL_SPEED + 10.0 {
+                f.stall_ticks = 0;
+            }
+
+            // Integrate position
+            let forward = f.forward();
+            f.position += forward * f.speed * DT;
+            apply_boundaries(f);
+
+            // Cooldown still ticks during stall
+            if f.gun_cooldown_ticks > 0 {
+                f.gun_cooldown_ticks -= 1;
+            }
+
+            // No shooting during stall
+            return;
+        }
+
+        // --- Stall entry check ---
+        if f.speed < STALL_SPEED {
+            f.stall_ticks = STALL_RECOVERY_TICKS;
+            return;
+        }
+
+        // --- Normal flight ---
+
+        // Compute turn rate at current speed (with damage penalty)
+        let turn_rate = effective_turn_rate(f.speed, f.hp);
 
         // Apply yaw
         let yaw_delta = action.yaw_input.clamp(-1.0, 1.0) * turn_rate * DT;
@@ -124,8 +228,8 @@ impl SimState {
         // Gravity: climbing (sin>0) costs speed, diving (sin<0) gains speed
         f.speed += (-GRAVITY * f.yaw.sin()) * DT;
 
-        // Clamp speed
-        f.speed = f.speed.clamp(MIN_SPEED, MAX_SPEED);
+        // Clamp speed (with damage penalty on max)
+        f.speed = f.speed.clamp(MIN_SPEED, effective_max_speed(f.hp));
 
         // Compute forward vector and integrate position
         let forward = f.forward();
@@ -184,11 +288,24 @@ impl SimState {
 
                 let dist_sq = (fighter.position - bullet.position).length_squared();
                 if dist_sq <= collision_dist_sq {
+                    // Rear-aspect armor check: bullets from behind glance off
+                    let bullet_dir = bullet.velocity.normalize();
+                    let fighter_fwd = fighter.forward();
+                    let dot = bullet_dir.dot(fighter_fwd);
+
+                    // Consume bullet regardless
+                    bullet.ticks_remaining = 0;
+
+                    // If bullet is from behind (dot > cos(REAR_ASPECT_CONE)),
+                    // it glances off — no damage, no hit stat
+                    if dot > REAR_ASPECT_CONE.cos() {
+                        break;
+                    }
+
                     fighter.hp = fighter.hp.saturating_sub(1);
                     if fighter.hp == 0 {
                         fighter.alive = false;
                     }
-                    bullet.ticks_remaining = 0;
 
                     match bullet.owner {
                         0 => self.stats.p0_hits += 1,
@@ -206,6 +323,16 @@ impl SimState {
 pub fn turn_rate_at_speed(speed: f32) -> f32 {
     let t = ((speed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED)).clamp(0.0, 1.0);
     MAX_TURN_RATE + t * (MIN_TURN_RATE - MAX_TURN_RATE)
+}
+
+/// Effective max speed accounting for damage.
+pub fn effective_max_speed(hp: u8) -> f32 {
+    MAX_SPEED * (1.0 - DAMAGE_SPEED_PENALTY * (MAX_HP - hp) as f32)
+}
+
+/// Effective turn rate accounting for speed and damage.
+pub fn effective_turn_rate(speed: f32, hp: u8) -> f32 {
+    turn_rate_at_speed(speed) * (1.0 - DAMAGE_TURN_PENALTY * (MAX_HP - hp) as f32)
 }
 
 /// Normalize angle to [-PI, PI].
@@ -372,7 +499,8 @@ mod tests {
         state.step(&[Action::none(), Action::none()]);
         assert!(state.fighters[0].speed <= MAX_SPEED);
 
-        state.fighters[0].speed = 0.0;
+        // Speed below stall triggers stall, but speed is still clamped >= MIN_SPEED
+        state.fighters[0].speed = STALL_SPEED + 1.0; // above stall, won't trigger stall entry
         state.step(&[Action::none(), Action::none()]);
         assert!(state.fighters[0].speed >= MIN_SPEED);
     }
@@ -555,5 +683,248 @@ mod tests {
         // Climbing should cost speed due to gravity
         assert!(state.fighters[0].speed < 150.0,
             "Climbing should cost speed, got {}", state.fighters[0].speed);
+    }
+
+    #[test]
+    fn test_stall_entry_at_low_speed() {
+        let mut state = SimState::new();
+        // Set speed just below stall threshold
+        state.fighters[0].speed = STALL_SPEED - 1.0;
+        state.fighters[0].position = Vec2::new(0.0, 300.0);
+
+        state.step(&[Action::none(), Action::none()]);
+
+        assert!(
+            state.fighters[0].stall_ticks > 0,
+            "Fighter below stall speed should enter stall, stall_ticks={}",
+            state.fighters[0].stall_ticks
+        );
+    }
+
+    #[test]
+    fn test_stall_ignores_yaw_input() {
+        let mut state = SimState::new();
+        state.fighters[0].speed = STALL_SPEED - 1.0;
+        state.fighters[0].yaw = 0.0; // facing right
+        state.fighters[0].position = Vec2::new(0.0, 300.0);
+
+        // Trigger stall
+        state.step(&[Action::none(), Action::none()]);
+        assert!(state.fighters[0].stall_ticks > 0);
+
+        // Now try to yaw hard left — should be ignored, nose should drift downward
+        let hard_left = Action { yaw_input: 1.0, throttle: 1.0, shoot: false };
+        for _ in 0..10 {
+            if state.fighters[0].stall_ticks == 0 { break; }
+            state.step(&[hard_left, Action::none()]);
+        }
+
+        // Yaw should have moved toward -PI/2 (down), not toward +PI/2 (up)
+        assert!(
+            state.fighters[0].yaw.sin() < 0.1,
+            "During stall, nose should rotate downward, yaw={:.2} sin={:.2}",
+            state.fighters[0].yaw,
+            state.fighters[0].yaw.sin()
+        );
+    }
+
+    #[test]
+    fn test_stall_recovery() {
+        let mut state = SimState::new();
+        // Start in stall: low speed, pointing slightly down (will gain speed from gravity)
+        state.fighters[0].speed = STALL_SPEED - 5.0;
+        state.fighters[0].yaw = -0.5; // slightly downward
+        state.fighters[0].position = Vec2::new(0.0, 400.0);
+
+        // Trigger stall entry
+        state.step(&[Action::none(), Action::none()]);
+        assert!(state.fighters[0].stall_ticks > 0, "Should enter stall");
+
+        // Run through stall recovery (gravity while nose-down should recover speed)
+        for _ in 0..120 {
+            state.step(&[Action { yaw_input: 0.0, throttle: 1.0, shoot: false }, Action::none()]);
+        }
+
+        // Should have exited stall by now
+        assert_eq!(
+            state.fighters[0].stall_ticks, 0,
+            "Fighter should recover from stall after enough ticks"
+        );
+    }
+
+    #[test]
+    fn test_no_shooting_during_stall() {
+        let mut state = SimState::new();
+        state.fighters[0].speed = STALL_SPEED - 1.0;
+        state.fighters[0].position = Vec2::new(0.0, 300.0);
+
+        // Enter stall
+        state.step(&[Action::none(), Action::none()]);
+        assert!(state.fighters[0].stall_ticks > 0);
+
+        // Try to shoot during stall
+        let shoot = Action { yaw_input: 0.0, throttle: 1.0, shoot: true };
+        let bullets_before = state.bullets.len();
+        state.step(&[shoot, Action::none()]);
+
+        assert_eq!(
+            state.bullets.len(),
+            bullets_before,
+            "Should not be able to shoot during stall"
+        );
+    }
+
+    #[test]
+    fn test_damage_reduces_max_speed() {
+        // Full HP: max speed = 250
+        assert!((effective_max_speed(MAX_HP) - MAX_SPEED).abs() < 0.01);
+
+        // 1 HP lost: max speed = 250 * (1 - 0.03) = 242.5
+        let one_damage = effective_max_speed(MAX_HP - 1);
+        assert!(
+            one_damage < MAX_SPEED,
+            "Damaged fighter should have lower max speed: {}",
+            one_damage
+        );
+        assert!(
+            (one_damage - MAX_SPEED * (1.0 - DAMAGE_SPEED_PENALTY)).abs() < 0.01,
+            "One damage should reduce max speed by DAMAGE_SPEED_PENALTY: {}",
+            one_damage
+        );
+
+        // 2 HP lost: even lower
+        let two_damage = effective_max_speed(MAX_HP - 2);
+        assert!(two_damage < one_damage);
+    }
+
+    #[test]
+    fn test_damage_reduces_turn_rate() {
+        let speed = 100.0;
+        let full_hp_rate = effective_turn_rate(speed, MAX_HP);
+        let damaged_rate = effective_turn_rate(speed, MAX_HP - 1);
+        let badly_damaged_rate = effective_turn_rate(speed, MAX_HP - 2);
+
+        assert!(
+            damaged_rate < full_hp_rate,
+            "Damaged fighter should turn slower: {} vs {}",
+            damaged_rate,
+            full_hp_rate
+        );
+        assert!(
+            badly_damaged_rate < damaged_rate,
+            "More damage = slower turns: {} vs {}",
+            badly_damaged_rate,
+            damaged_rate
+        );
+    }
+
+    #[test]
+    fn test_rear_aspect_bullet_no_damage() {
+        // P0 behind P1, both facing right. P0's bullet hits P1 from behind.
+        let mut state = SimState::new();
+        state.fighters[0].position = Vec2::new(0.0, 300.0);
+        state.fighters[0].yaw = 0.0; // facing right
+        state.fighters[1].position = Vec2::new(50.0, 300.0);
+        state.fighters[1].yaw = 0.0; // also facing right (P0 is behind P1)
+
+        let shoot = Action { yaw_input: 0.0, throttle: 0.0, shoot: true };
+        state.step(&[shoot, Action::none()]);
+
+        // Bullet should be spawned
+        assert_eq!(state.bullets.len(), 1);
+
+        // Run until bullet reaches P1
+        let no_action = [Action::none(), Action::none()];
+        for _ in 0..30 {
+            state.step(&no_action);
+        }
+
+        // Rear-aspect: P1 should take NO damage
+        assert_eq!(
+            state.fighters[1].hp, MAX_HP,
+            "Rear-aspect bullet should do no damage. HP={}",
+            state.fighters[1].hp
+        );
+    }
+
+    #[test]
+    fn test_side_aspect_bullet_full_damage() {
+        // P0 shoots P1 from perpendicular (side aspect)
+        let mut state = SimState::new();
+        state.fighters[0].position = Vec2::new(0.0, 300.0);
+        state.fighters[0].yaw = 0.0; // facing right
+        state.fighters[1].position = Vec2::new(50.0, 300.0);
+        state.fighters[1].yaw = std::f32::consts::FRAC_PI_2; // facing up (perpendicular)
+
+        let shoot = Action { yaw_input: 0.0, throttle: 0.0, shoot: true };
+        state.step(&[shoot, Action::none()]);
+
+        let no_action = [Action::none(), Action::none()];
+        for _ in 0..30 {
+            state.step(&no_action);
+        }
+
+        // Side aspect: P1 should take full damage
+        assert!(
+            state.fighters[1].hp < MAX_HP,
+            "Side-aspect bullet should deal damage. HP={}",
+            state.fighters[1].hp
+        );
+    }
+
+    #[test]
+    fn test_head_on_bullet_full_damage() {
+        // Head-on: P0 facing right, P1 facing left (toward each other)
+        let mut state = SimState::new();
+        state.fighters[0].position = Vec2::new(0.0, 300.0);
+        state.fighters[0].yaw = 0.0; // facing right
+        state.fighters[1].position = Vec2::new(50.0, 300.0);
+        state.fighters[1].yaw = std::f32::consts::PI; // facing left
+
+        let shoot = Action { yaw_input: 0.0, throttle: 0.0, shoot: true };
+        state.step(&[shoot, Action::none()]);
+
+        let no_action = [Action::none(), Action::none()];
+        for _ in 0..30 {
+            state.step(&no_action);
+        }
+
+        // Head-on: P1 should take full damage
+        assert!(
+            state.fighters[1].hp < MAX_HP,
+            "Head-on bullet should deal damage. HP={}",
+            state.fighters[1].hp
+        );
+    }
+
+    #[test]
+    fn test_randomized_spawns() {
+        let state1 = SimState::new_with_seed(42, true);
+        let state2 = SimState::new_with_seed(42, true);
+        let state_default = SimState::new();
+
+        // Same seed should produce same state
+        assert!(
+            (state1.fighters[0].position.x - state2.fighters[0].position.x).abs() < 0.001,
+            "Same seed should produce same positions"
+        );
+
+        // Randomized should differ from default
+        assert!(
+            (state1.fighters[0].position.y - state_default.fighters[0].position.y).abs() > 0.1
+                || (state1.fighters[0].yaw - state_default.fighters[0].yaw).abs() > 0.1,
+            "Randomized spawn should differ from default"
+        );
+    }
+
+    #[test]
+    fn test_randomized_spawns_false_returns_default() {
+        let state = SimState::new_with_seed(42, false);
+        let default = SimState::new();
+
+        assert!(
+            (state.fighters[0].position.x - default.fighters[0].position.x).abs() < 0.001,
+            "randomize=false should return default positions"
+        );
     }
 }

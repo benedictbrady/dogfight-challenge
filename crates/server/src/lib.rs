@@ -1,12 +1,15 @@
 use axum::{
-    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Query,
+    },
     response::IntoResponse,
     routing::get,
     Json, Router,
 };
 use dogfight_shared::*;
 use dogfight_sim::opponents::{AcePolicy, BrawlerPolicy, ChaserPolicy, DogfighterPolicy};
-use dogfight_sim::{run_match, DoNothingPolicy, Policy};
+use dogfight_sim::{run_match, DoNothingPolicy, Policy, SimState};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
@@ -23,6 +26,7 @@ struct MatchRequest {
     p0: String,
     p1: String,
     seed: Option<u64>,
+    randomize_spawns: Option<bool>,
 }
 
 /// A single frame streamed to the client.
@@ -104,6 +108,25 @@ async fn get_policies() -> Json<Vec<&'static str>> {
     Json(AVAILABLE_POLICIES.to_vec())
 }
 
+/// Query params for GET /api/spawn.
+#[derive(Debug, Deserialize)]
+struct SpawnQuery {
+    seed: Option<u64>,
+}
+
+/// GET /api/spawn -- returns starting positions for a given seed.
+async fn get_spawn(Query(q): Query<SpawnQuery>) -> Json<serde_json::Value> {
+    let seed = q.seed.unwrap_or(0);
+    let state = SimState::new_with_seed(seed, true);
+    let f = &state.fighters;
+    Json(serde_json::json!({
+        "fighters": [
+            { "x": f[0].position.x, "y": f[0].position.y, "yaw": f[0].yaw, "speed": f[0].speed, "hp": f[0].hp, "alive": f[0].alive },
+            { "x": f[1].position.x, "y": f[1].position.y, "yaw": f[1].yaw, "speed": f[1].speed, "hp": f[1].hp, "alive": f[1].alive },
+        ]
+    }))
+}
+
 /// GET /api/match -- WebSocket upgrade endpoint.
 async fn ws_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(handle_socket)
@@ -154,6 +177,7 @@ async fn handle_socket(mut socket: WebSocket) {
     let p0_name = req.p0.clone();
     let p1_name = req.p1.clone();
     let seed = req.seed.unwrap_or(0);
+    let randomize_spawns = req.randomize_spawns.unwrap_or(false);
 
     let replay = tokio::task::spawn_blocking(move || {
         let mut p0 = try_resolve_policy(&p0_name).unwrap();
@@ -162,6 +186,7 @@ async fn handle_socket(mut socket: WebSocket) {
             seed,
             p0_name,
             p1_name,
+            randomize_spawns,
             ..Default::default()
         };
         run_match(&match_config, p0.as_mut(), p1.as_mut())
@@ -230,6 +255,7 @@ async fn send_error(
 pub fn app() -> Router {
     Router::new()
         .route("/api/policies", get(get_policies))
+        .route("/api/spawn", get(get_spawn))
         .route("/api/match", get(ws_handler))
         .layer(CorsLayer::permissive())
 }

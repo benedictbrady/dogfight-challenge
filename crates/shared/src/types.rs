@@ -9,6 +9,7 @@ pub struct FighterState {
     pub hp: u8,
     pub gun_cooldown_ticks: u32,
     pub alive: bool,
+    pub stall_ticks: u32,
 }
 
 impl FighterState {
@@ -106,6 +107,7 @@ pub struct FighterSnapshot {
     pub speed: f32,
     pub hp: u8,
     pub alive: bool,
+    pub stalled: bool,
 }
 
 impl From<&FighterState> for FighterSnapshot {
@@ -117,6 +119,7 @@ impl From<&FighterState> for FighterSnapshot {
             speed: s.speed,
             hp: s.hp,
             alive: s.alive,
+            stalled: s.stall_ticks > 0,
         }
     }
 }
@@ -157,6 +160,7 @@ pub struct MatchConfig {
     pub p0_control_period: u32,
     pub p1_control_period: u32,
     pub max_ticks: u32,
+    pub randomize_spawns: bool,
 }
 
 impl Default for MatchConfig {
@@ -168,6 +172,7 @@ impl Default for MatchConfig {
             p0_control_period: 1,
             p1_control_period: 1,
             max_ticks: crate::MAX_TICKS,
+            randomize_spawns: false,
         }
     }
 }

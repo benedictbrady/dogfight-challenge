@@ -1,5 +1,15 @@
 /target
 viz/node_modules/
 viz/.next/
+viz/.next_stale_*/
 viz/out/
 *.onnx
+*.onnx.data
+
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+*.so
+training/checkpoints/
+training/runs/

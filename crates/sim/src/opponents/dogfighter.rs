@@ -166,7 +166,8 @@ impl DogfighterPolicy {
     fn act_evade(&self, ts: &TacticalState) -> Action {
         let can_shoot = ts.angle_off_nose.abs() < 0.3
             && ts.distance < 350.0
-            && ts.gun_cooldown < 0.01;
+            && ts.gun_cooldown < 0.01
+            && !ts.would_be_rear_aspect_shot;
 
         // Respect altitude during evasion
         let evade_yaw = if ts.altitude < 80.0 && self.evade_dir < 0.0 && ts.my_yaw.sin() < 0.0 {
@@ -175,18 +176,23 @@ impl DogfighterPolicy {
             self.evade_dir
         };
 
+        let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, evade_yaw);
+        let throttle = 0.8f32.max(min_throttle);
+
         Action {
-            yaw_input: evade_yaw,
-            throttle: 0.8,
+            yaw_input,
+            throttle,
             shoot: can_shoot,
         }
     }
 
-    /// Attack mode: lead pursuit, throttle management, shoot when aimed
+    /// Attack mode: lead pursuit (crossing aim when behind), throttle management
     fn act_attack(&self, ts: &TacticalState) -> Action {
-        let desired_yaw = lead_aim(
-            ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0,
-        );
+        let desired_yaw = if ts.am_behind_opponent {
+            crossing_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
+        } else {
+            lead_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
+        };
         let mut yaw_diff = angle_diff(desired_yaw, ts.my_yaw);
 
         // Altitude management
@@ -195,7 +201,7 @@ impl DogfighterPolicy {
         let yaw_input = (yaw_diff * 3.0).clamp(-1.0, 1.0);
 
         // Throttle management
-        let throttle = if ts.my_speed < 80.0 {
+        let throttle: f32 = if ts.my_speed < 80.0 {
             1.0
         } else if yaw_input.abs() > 0.7 {
             0.5
@@ -207,7 +213,11 @@ impl DogfighterPolicy {
 
         let shoot = ts.angle_off_nose.abs() < 0.22
             && ts.distance < 350.0
-            && ts.gun_cooldown < 0.01;
+            && ts.gun_cooldown < 0.01
+            && !ts.would_be_rear_aspect_shot;
+
+        let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
+        let throttle = throttle.max(min_throttle);
 
         Action {
             yaw_input,
@@ -224,12 +234,16 @@ impl DogfighterPolicy {
         let yaw_input = yaw_toward(perp_yaw, ts.my_yaw, 3.5);
 
         // Slow down for tighter turns
-        let throttle = if ts.my_speed > 100.0 { 0.3 } else { 0.6 };
+        let throttle: f32 = if ts.my_speed > 100.0 { 0.3 } else { 0.6 };
 
-        // Snapshot shots if opponent drifts into view
+        // Snapshot shots if opponent drifts into view (skip rear-aspect)
         let shoot = ts.angle_off_nose.abs() < 0.3
             && ts.distance < 250.0
-            && ts.gun_cooldown < 0.01;
+            && ts.gun_cooldown < 0.01
+            && !ts.would_be_rear_aspect_shot;
+
+        let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
+        let throttle = throttle.max(min_throttle);
 
         Action {
             yaw_input,
@@ -252,14 +266,18 @@ impl DogfighterPolicy {
 
         let yaw_input = yaw_toward(desired_yaw, ts.my_yaw, 2.0);
 
-        // Opportunistic shots
+        // Opportunistic shots (skip rear-aspect)
         let shoot = ts.angle_off_nose.abs() < 0.25
             && ts.distance < 300.0
-            && ts.gun_cooldown < 0.01;
+            && ts.gun_cooldown < 0.01
+            && !ts.would_be_rear_aspect_shot;
+
+        let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
+        let throttle = 1.0f32.max(min_throttle);
 
         Action {
             yaw_input,
-            throttle: 1.0,
+            throttle,
             shoot,
         }
     }
@@ -270,9 +288,12 @@ impl DogfighterPolicy {
         let away_yaw = f32::atan2(-ts.rel_y, -ts.rel_x);
         let yaw_input = yaw_toward(away_yaw, ts.my_yaw, 2.5);
 
+        let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
+        let throttle = 1.0f32.max(min_throttle);
+
         Action {
             yaw_input,
-            throttle: 1.0,
+            throttle,
             shoot: false,
         }
     }

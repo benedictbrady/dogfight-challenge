@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 use dogfight_shared::*;
+use dogfight_sim::analyzer;
 use dogfight_sim::opponents::{AcePolicy, BrawlerPolicy, ChaserPolicy, DogfighterPolicy};
 use dogfight_sim::{run_match, DoNothingPolicy, Policy};
 
@@ -33,6 +34,10 @@ enum Commands {
         /// Output path for replay JSON
         #[arg(long)]
         output: Option<PathBuf>,
+
+        /// Use randomized spawn positions
+        #[arg(long)]
+        randomize: bool,
     },
 
     /// Validate an ONNX model
@@ -57,6 +62,25 @@ enum Commands {
         /// Number of rounds per matchup
         #[arg(long)]
         rounds: u32,
+    },
+
+    /// Analyze battle dynamics across matchups
+    Analyze {
+        /// Comma-separated list of policy names
+        #[arg(long, default_value = "chaser,dogfighter,ace,brawler")]
+        policies: String,
+
+        /// Number of seeds to run per matchup
+        #[arg(long, default_value_t = 5)]
+        seeds: u32,
+
+        /// Optional label for this analysis run
+        #[arg(long)]
+        label: Option<String>,
+
+        /// Use randomized spawns
+        #[arg(long)]
+        randomize: bool,
     },
 }
 
@@ -101,17 +125,25 @@ fn main() {
             p1,
             seed,
             output,
-        } => cmd_run(&p0, &p1, seed, output),
+            randomize,
+        } => cmd_run(&p0, &p1, seed, output, randomize),
 
         Commands::Validate { model_path } => cmd_validate(&model_path),
 
         Commands::Serve { port } => cmd_serve(port),
 
         Commands::Tournament { policies, rounds } => cmd_tournament(&policies, rounds),
+
+        Commands::Analyze {
+            policies,
+            seeds,
+            label,
+            randomize,
+        } => cmd_analyze(&policies, seeds, label.as_deref(), randomize),
     }
 }
 
-fn cmd_run(p0_name: &str, p1_name: &str, seed: u64, output: Option<PathBuf>) {
+fn cmd_run(p0_name: &str, p1_name: &str, seed: u64, output: Option<PathBuf>, randomize: bool) {
     let mut p0 = resolve_policy(p0_name);
     let mut p1 = resolve_policy(p1_name);
 
@@ -122,6 +154,7 @@ fn cmd_run(p0_name: &str, p1_name: &str, seed: u64, output: Option<PathBuf>) {
         p0_control_period: 1,
         p1_control_period: 1,
         max_ticks: MAX_TICKS,
+        randomize_spawns: randomize,
     };
 
     println!(
@@ -219,9 +252,7 @@ fn cmd_tournament(policies_str: &str, rounds: u32) {
                     seed: round as u64,
                     p0_name: p0.name().to_string(),
                     p1_name: p1.name().to_string(),
-                    p0_control_period: 1,
-                    p1_control_period: 1,
-                    max_ticks: MAX_TICKS,
+                    ..Default::default()
                 };
 
                 let replay = run_match(&config, p0.as_mut(), p1.as_mut());
@@ -259,4 +290,104 @@ fn cmd_tournament(policies_str: &str, rounds: u32) {
     for (name, pts) in sorted_scores {
         println!("{:<20} {:>8}", name, pts);
     }
+}
+
+fn cmd_analyze(policies_str: &str, seeds: u32, label: Option<&str>, randomize: bool) {
+    let policy_names: Vec<&str> = policies_str.split(',').map(|s| s.trim()).collect();
+
+    if policy_names.len() < 2 {
+        eprintln!("Analyze requires at least 2 policies.");
+        std::process::exit(1);
+    }
+
+    if let Some(l) = label {
+        println!("=== Battle Dynamics Analysis: {} ===", l);
+    } else {
+        println!("=== Battle Dynamics Analysis ===");
+    }
+    println!(
+        "Policies: {} | Seeds: {} | Randomize: {}",
+        policy_names.join(", "),
+        seeds,
+        randomize
+    );
+    println!();
+
+    // Header
+    println!(
+        "{:<25} {:>5} {:>8} {:>8} {:>7} {:>5} {:>5} {:>8} {:>8}",
+        "Matchup", "circ", "spd_var", "alt_rng", "engage", "hit%", "elim%", "combat_v", "dynam"
+    );
+    println!("{:-<85}", "");
+
+    let mut total_dynamism = 0.0f32;
+    let mut matchup_count = 0u32;
+
+    for i in 0..policy_names.len() {
+        for j in (i + 1)..policy_names.len() {
+            let name_a = policy_names[i];
+            let name_b = policy_names[j];
+
+            let mut agg_circ = 0.0f32;
+            let mut agg_spd = 0.0f32;
+            let mut agg_alt = 0.0f32;
+            let mut agg_engage = 0u32;
+            let mut agg_hit = 0.0f32;
+            let mut agg_elim = 0.0f32;
+            let mut agg_combat = 0.0f32;
+            let mut agg_dyn = 0.0f32;
+
+            for seed in 0..seeds {
+                let mut p0 = resolve_policy(name_a);
+                let mut p1 = resolve_policy(name_b);
+
+                let config = MatchConfig {
+                    seed: seed as u64,
+                    p0_name: p0.name().to_string(),
+                    p1_name: p1.name().to_string(),
+                    p0_control_period: 1,
+                    p1_control_period: 1,
+                    max_ticks: MAX_TICKS,
+                    randomize_spawns: randomize,
+                };
+
+                let replay = run_match(&config, p0.as_mut(), p1.as_mut());
+                let m = analyzer::analyze(&replay);
+
+                agg_circ += m.circling_index;
+                agg_spd += m.speed_variance;
+                agg_alt += m.altitude_range;
+                agg_engage += m.engagement_count;
+                agg_hit += m.hit_rate;
+                agg_elim += m.elimination_rate;
+                agg_combat += m.avg_combat_speed;
+                agg_dyn += m.dynamism_score;
+            }
+
+            let n = seeds as f32;
+            let matchup_label = format!("{} v {}", name_a, name_b);
+
+            println!(
+                "{:<25} {:>5.2} {:>8.1} {:>8.0} {:>7.1} {:>5.2} {:>5.2} {:>8.1} {:>8.1}",
+                matchup_label,
+                agg_circ / n,
+                agg_spd / n,
+                agg_alt / n,
+                agg_engage as f32 / n,
+                agg_hit / n,
+                agg_elim / n,
+                agg_combat / n,
+                agg_dyn / n,
+            );
+
+            total_dynamism += agg_dyn / n;
+            matchup_count += 1;
+        }
+    }
+
+    println!("{:-<85}", "");
+    println!(
+        "Average dynamism score: {:.1}/100",
+        total_dynamism / matchup_count as f32
+    );
 }

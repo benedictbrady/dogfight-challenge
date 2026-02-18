@@ -10,9 +10,6 @@ interface DebugOverlayProps {
   totalFrames: number;
 }
 
-/** Maximum plausible distance a fighter can move between streamed frames.
- *  MAX_SPEED (250 m/s) * FRAME_INTERVAL (4 ticks) * DT (1/120 s) ≈ 8.33 units.
- *  We use 12 to allow some headroom for boundary push-back, etc. */
 const TELEPORT_THRESHOLD = 12;
 
 interface TeleportEvent {
@@ -64,11 +61,9 @@ export default function DebugOverlay({
   const [visible, setVisible] = useState(false);
   const teleportLog = useRef<TeleportEvent[]>([]);
 
-  // Toggle with D key
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "d" || e.key === "D") {
-        // Don't toggle if user is typing in an input
         if (
           e.target instanceof HTMLInputElement ||
           e.target instanceof HTMLTextAreaElement
@@ -81,7 +76,6 @@ export default function DebugOverlay({
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // Detect teleportation
   const teleports = useMemo(() => {
     if (!prevFrame) return [];
     const events: TeleportEvent[] = [];
@@ -101,7 +95,6 @@ export default function DebugOverlay({
           delta,
         };
         events.push(event);
-        // Log to console for debugging
         console.warn(
           `[TELEPORT] P${p} jumped ${delta.toFixed(1)} units: ` +
             `(${fmtNum(prev.x)}, ${fmtNum(prev.y)}) → (${fmtNum(curr.x)}, ${fmtNum(curr.y)}) ` +
@@ -112,7 +105,6 @@ export default function DebugOverlay({
     return events;
   }, [frame, prevFrame, frameIndex]);
 
-  // Accumulate teleport events
   useEffect(() => {
     if (teleports.length > 0) {
       teleportLog.current = [
@@ -122,7 +114,6 @@ export default function DebugOverlay({
     }
   }, [teleports]);
 
-  // Log first frame data when match starts
   useEffect(() => {
     if (frameIndex === 0 && totalFrames > 0) {
       console.log(
@@ -140,12 +131,10 @@ export default function DebugOverlay({
         DEBUG (press D to hide)
       </div>
 
-      {/* Frame info */}
       <div className="mb-1 text-gray-400">
         Frame {frameIndex}/{totalFrames} &middot; Tick {frame.tick}
       </div>
 
-      {/* Fighter state table */}
       <table className="w-full mb-1">
         <thead>
           <tr className="text-gray-500 border-b border-white/20">
@@ -162,17 +151,16 @@ export default function DebugOverlay({
           <FighterRow
             label="P0"
             state={frame.fighters[0]}
-            color="#c4a050"
+            color="#2563eb"
           />
           <FighterRow
             label="P1"
             state={frame.fighters[1]}
-            color="#b83030"
+            color="#dc2626"
           />
         </tbody>
       </table>
 
-      {/* Delta from previous frame */}
       {prevFrame && (
         <div className="text-gray-500 mb-1">
           &Delta;P0: (
@@ -184,7 +172,6 @@ export default function DebugOverlay({
         </div>
       )}
 
-      {/* Teleport alerts */}
       {teleportLog.current.length > 0 && (
         <div className="mt-1 border-t border-red-500/50 pt-1">
           <div className="text-red-400 font-bold text-[11px]">
