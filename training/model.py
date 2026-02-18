@@ -133,7 +133,7 @@ class ActorCritic(nn.Module):
 class ActorOnly(nn.Module):
     """Actor-only network for ONNX export (no critic head).
 
-    Applies tanh/sigmoid at inference time to produce bounded outputs.
+    Uses clamp to match training behavior (NOT tanh/sigmoid).
     """
 
     def __init__(self, obs_dim: int = OBS_SIZE, hidden: int = 256):
@@ -150,8 +150,8 @@ class ActorOnly(nn.Module):
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         h = self.backbone(obs)
         cont = self.cont_head(h)                    # [batch, 2]
-        yaw = torch.tanh(cont[:, 0:1])              # [-1, 1]
-        throttle = torch.sigmoid(cont[:, 1:2])      # [0, 1]
+        yaw = cont[:, 0:1].clamp(-1.0, 1.0)        # [-1, 1]
+        throttle = cont[:, 1:2].clamp(0.0, 1.0)    # [0, 1]
         shoot = self.shoot_head(h)                   # raw logit; sim uses > 0 threshold
         return torch.cat([yaw, throttle, shoot], dim=-1)
 

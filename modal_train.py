@@ -24,24 +24,6 @@ app = modal.App("dogfight-train")
 # Image: Rust toolchain + maturin + PyTorch + compiled pyenv crate
 # ---------------------------------------------------------------------------
 
-# Minimal workspace Cargo.toml with only the crates needed for pyenv
-WORKSPACE_TOML = """\
-[workspace]
-members = [
-    "crates/shared",
-    "crates/sim",
-    "crates/pyenv",
-]
-resolver = "2"
-
-[workspace.dependencies]
-glam = { version = "0.29", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-rand = "0.8"
-rand_pcg = "0.3"
-"""
-
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("curl", "build-essential", "pkg-config")
@@ -50,21 +32,19 @@ image = (
     )
     .env({"PATH": "/root/.cargo/bin:/usr/local/bin:/usr/bin:/bin"})
     .pip_install("torch", "numpy", "tensorboard", "maturin")
-    # Copy only the crates needed for pyenv
-    .copy_local_dir("crates/shared", "/app/crates/shared")
-    .copy_local_dir("crates/sim", "/app/crates/sim")
-    .copy_local_dir("crates/pyenv", "/app/crates/pyenv")
-    # Write minimal workspace Cargo.toml (avoids needing server/cli/validator stubs)
-    .run_commands(
-        f"cat > /app/Cargo.toml << 'TOML'\n{WORKSPACE_TOML}TOML",
-    )
+    # Copy crates into image (copy=True bakes into image so maturin build works)
+    .add_local_dir("crates/shared", "/app/crates/shared", copy=True)
+    .add_local_dir("crates/sim", "/app/crates/sim", copy=True)
+    .add_local_dir("crates/pyenv", "/app/crates/pyenv", copy=True)
+    # Minimal workspace Cargo.toml (only shared+sim+pyenv, no server/cli/validator)
+    .add_local_file("crates/pyenv/Cargo.workspace.toml", "/app/Cargo.toml", copy=True)
     # Build the pyenv crate (pre-compiled in the image, zero startup cost)
     .run_commands(
         "cd /app && maturin build --release -m crates/pyenv/Cargo.toml",
         "pip install /app/target/wheels/*.whl",
     )
-    # Copy training scripts last (changes most often, minimizes image rebuild)
-    .copy_local_dir("training", "/app/training")
+    # Training scripts added at startup (no build step needed, fast iteration)
+    .add_local_dir("training", "/app/training")
 )
 
 # Persistent volume for checkpoints and TensorBoard logs
@@ -89,10 +69,11 @@ def train(
     minibatch_size: int = 4096,
     lr: float = 3e-4,
     ent_coef: float = 0.01,
-    gamma: float = 0.99,
+    gamma: float = 0.999,
     gae_lambda: float = 0.95,
     clip_eps: float = 0.2,
     vf_coef: float = 0.5,
+    action_repeat: int = 10,
     save_every: int = 100,
     tag: str = "",
     resume: str = "",
@@ -114,6 +95,7 @@ def train(
         "n_epochs": n_epochs, "minibatch_size": minibatch_size,
         "lr": lr, "ent_coef": ent_coef, "gamma": gamma,
         "gae_lambda": gae_lambda, "clip_eps": clip_eps, "vf_coef": vf_coef,
+        "action_repeat": action_repeat,
     }
     with open(f"{exp_dir}/config.json", "w") as f:
         json.dump(config, f, indent=2)
@@ -131,6 +113,7 @@ def train(
         "--gae-lambda", str(gae_lambda),
         "--clip-eps", str(clip_eps),
         "--vf-coef", str(vf_coef),
+        "--action-repeat", str(action_repeat),
         "--save-every", str(save_every),
         "--checkpoint-dir", ckpt_dir,
         "--log-dir", log_dir,

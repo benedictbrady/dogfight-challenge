@@ -98,6 +98,10 @@ fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
     }
 }
 
+fn is_onnx_policy(name: &str) -> bool {
+    name == "neural" || name.ends_with(".onnx")
+}
+
 fn load_onnx_policy(path: &Path) -> Option<Box<dyn Policy>> {
     match OnnxPolicy::load(path) {
         Ok(p) => {
@@ -198,10 +202,17 @@ async fn handle_socket(mut socket: WebSocket) {
     let replay = tokio::task::spawn_blocking(move || {
         let mut p0 = try_resolve_policy(&p0_name).unwrap();
         let mut p1 = try_resolve_policy(&p1_name).unwrap();
+
+        // ONNX models were trained with action_repeat=10, so set control_period=10
+        let p0_period = if is_onnx_policy(&p0_name) { 10 } else { 1 };
+        let p1_period = if is_onnx_policy(&p1_name) { 10 } else { 1 };
+
         let match_config = MatchConfig {
             seed,
             p0_name,
             p1_name,
+            p0_control_period: p0_period,
+            p1_control_period: p1_period,
             randomize_spawns,
             ..Default::default()
         };
