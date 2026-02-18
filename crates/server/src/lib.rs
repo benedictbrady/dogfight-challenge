@@ -10,11 +10,13 @@ use axum::{
 use dogfight_shared::*;
 use dogfight_sim::opponents::{AcePolicy, BrawlerPolicy, ChaserPolicy, DogfighterPolicy};
 use dogfight_sim::{run_match, DoNothingPolicy, Policy, SimState};
+use dogfight_validator::OnnxPolicy;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tower_http::cors::CorsLayer;
 
 /// Available built-in policy names.
-const AVAILABLE_POLICIES: &[&str] = &["dogfighter", "chaser", "ace", "brawler", "do_nothing"];
+const AVAILABLE_POLICIES: &[&str] = &["dogfighter", "chaser", "ace", "brawler", "do_nothing", "neural"];
 
 // ---------------------------------------------------------------------------
 // Serde types for WebSocket messages
@@ -75,16 +77,11 @@ struct ErrorMessage {
 
 /// Resolve a policy by name. Returns a boxed `Policy` trait object.
 ///
-/// Supported names: `"do_nothing"`, `"chaser"`, `"dogfighter"`.
+/// Supports built-in names and ONNX model paths:
+/// - `"neural"` loads `policy.onnx` from the current directory
+/// - Any name ending in `.onnx` is loaded as a file path
 pub fn resolve_policy(name: &str) -> Box<dyn Policy> {
-    match name {
-        "do_nothing" => Box::new(DoNothingPolicy),
-        "chaser" => Box::new(ChaserPolicy::new()),
-        "dogfighter" => Box::new(DogfighterPolicy::new()),
-        "ace" => Box::new(AcePolicy::new()),
-        "brawler" => Box::new(BrawlerPolicy::new()),
-        other => panic!("unknown policy: {other}"),
-    }
+    try_resolve_policy(name).unwrap_or_else(|| panic!("unknown policy: {name}"))
 }
 
 /// Try to resolve a policy by name, returning `None` for unknown names.
@@ -95,7 +92,22 @@ fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
         "dogfighter" => Some(Box::new(DogfighterPolicy::new())),
         "ace" => Some(Box::new(AcePolicy::new())),
         "brawler" => Some(Box::new(BrawlerPolicy::new())),
+        "neural" => load_onnx_policy(Path::new("policy.onnx")),
+        path if path.ends_with(".onnx") => load_onnx_policy(Path::new(path)),
         _ => None,
+    }
+}
+
+fn load_onnx_policy(path: &Path) -> Option<Box<dyn Policy>> {
+    match OnnxPolicy::load(path) {
+        Ok(p) => {
+            println!("Loaded ONNX policy from {}", path.display());
+            Some(Box::new(p))
+        }
+        Err(e) => {
+            eprintln!("Failed to load ONNX policy from {}: {e}", path.display());
+            None
+        }
     }
 }
 
@@ -154,7 +166,11 @@ async fn handle_socket(mut socket: WebSocket) {
     };
 
     // 2. Validate policy names before resolving (to send error over WS).
-    if !AVAILABLE_POLICIES.contains(&req.p0.as_str()) {
+    fn is_valid_policy(name: &str) -> bool {
+        AVAILABLE_POLICIES.contains(&name) || name.ends_with(".onnx")
+    }
+
+    if !is_valid_policy(&req.p0) {
         let _ = send_error(
             &mut socket,
             &format!("unknown policy for p0: {}", req.p0),
@@ -163,7 +179,7 @@ async fn handle_socket(mut socket: WebSocket) {
         return;
     }
 
-    if !AVAILABLE_POLICIES.contains(&req.p1.as_str()) {
+    if !is_valid_policy(&req.p1) {
         let _ = send_error(
             &mut socket,
             &format!("unknown policy for p1: {}", req.p1),

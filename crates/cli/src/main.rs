@@ -7,6 +7,7 @@ use dogfight_shared::*;
 use dogfight_sim::analyzer;
 use dogfight_sim::opponents::{AcePolicy, BrawlerPolicy, ChaserPolicy, DogfighterPolicy};
 use dogfight_sim::{run_match, DoNothingPolicy, Policy};
+use dogfight_validator::OnnxPolicy;
 
 #[derive(Parser)]
 #[command(name = "dogfight", about = "Dogfight challenge CLI")]
@@ -98,17 +99,35 @@ fn resolve_policy(name: &str) -> Box<dyn Policy> {
         "ace" => Box::new(AcePolicy::new()),
         "brawler" => Box::new(BrawlerPolicy::new()),
         "do_nothing" => Box::new(DoNothingPolicy),
+        "neural" => {
+            let path = std::path::Path::new("policy.onnx");
+            match OnnxPolicy::load(path) {
+                Ok(p) => {
+                    println!("Loaded ONNX policy from {}", path.display());
+                    Box::new(p)
+                }
+                Err(e) => {
+                    eprintln!("Failed to load policy.onnx: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         path if path.ends_with(".onnx") => {
-            eprintln!(
-                "Warning: ONNX loading requires the onnxruntime library. \
-                 Falling back to DoNothingPolicy for '{}'.",
-                path
-            );
-            Box::new(DoNothingPolicy)
+            let p = std::path::Path::new(path);
+            match OnnxPolicy::load(p) {
+                Ok(policy) => {
+                    println!("Loaded ONNX policy from {}", p.display());
+                    Box::new(policy)
+                }
+                Err(e) => {
+                    eprintln!("Failed to load ONNX policy '{}': {e}", path);
+                    std::process::exit(1);
+                }
+            }
         }
         other => {
             eprintln!(
-                "Unknown policy '{}'. Valid options: chaser, dogfighter, ace, brawler, do_nothing, or a .onnx file path.",
+                "Unknown policy '{}'. Valid options: chaser, dogfighter, ace, brawler, do_nothing, neural, or a .onnx file path.",
                 other
             );
             std::process::exit(1);

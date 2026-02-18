@@ -1,0 +1,17 @@
+[package]
+name = "dogfight-pyenv"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "dogfight_pyenv"
+crate-type = ["cdylib"]
+
+[dependencies]
+dogfight-shared = { path = "../shared" }
+dogfight-sim = { path = "../sim" }
+pyo3 = { version = "0.22", features = ["extension-module"] }
+numpy = "0.22"
+rand = { workspace = true }
+rand_pcg = { workspace = true }
+rayon = "1.10"

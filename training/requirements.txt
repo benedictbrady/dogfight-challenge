@@ -1,0 +1,8 @@
+torch>=2.0
+numpy
+gymnasium
+maturin
+tensorboard
+onnx
+onnxruntime
+onnxscript

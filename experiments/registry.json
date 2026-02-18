@@ -1,0 +1,26 @@
+{
+  "next_id": 2,
+  "experiments": [
+    {
+      "id": 1,
+      "date": "2025-02-18",
+      "tag": "baseline-v1",
+      "config": {
+        "n_envs": 16,
+        "n_steps": 10800,
+        "action_repeat": 1,
+        "num_updates": 300,
+        "lr": 3e-4,
+        "ent_coef": 0.003,
+        "gamma": 0.99,
+        "curriculum": "do_nothing+dogfighter(0-100) -> dogfighter+chaser(100-250) -> chaser+ace(250+)"
+      },
+      "status": "completed",
+      "notes": "First training run. Entropy drifted upward, win rate stagnated ~18%. Sparse rewards with full-match rollouts made credit assignment hard.",
+      "results": {
+        "final_win_rate": 0.19,
+        "final_return": -0.34
+      }
+    }
+  ]
+}

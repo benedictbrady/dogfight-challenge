@@ -1,0 +1,80 @@
+"""Export trained actor to ONNX and optionally validate with the Rust validator."""
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+import torch
+import numpy as np
+
+from model import ActorCritic, ActorOnly, OBS_SIZE, ACTION_SIZE
+
+
+def export(model_path: str, output_path: str, validate: bool = True):
+    device = torch.device("cpu")
+
+    # Load checkpoint
+    ckpt = torch.load(model_path, map_location=device, weights_only=True)
+    ac = ActorCritic().to(device)
+    ac.load_state_dict(ckpt["model"])
+    ac.eval()
+
+    # Extract actor-only network
+    actor = ActorOnly.from_actor_critic(ac)
+    actor.eval()
+
+    # Dummy input
+    dummy = torch.randn(1, OBS_SIZE)
+
+    # Export
+    torch.onnx.export(
+        actor,
+        dummy,
+        output_path,
+        input_names=["obs"],
+        output_names=["action"],
+        dynamic_axes={"obs": {0: "batch"}, "action": {0: "batch"}},
+        opset_version=17,
+    )
+
+    # Verify output shape
+    import onnxruntime as ort
+
+    sess = ort.InferenceSession(output_path)
+    test_obs = np.random.randn(1, OBS_SIZE).astype(np.float32)
+    result = sess.run(None, {"obs": test_obs})
+    assert result[0].shape == (1, ACTION_SIZE), f"Bad output shape: {result[0].shape}"
+
+    size_kb = Path(output_path).stat().st_size / 1024
+    print(f"Exported ONNX model to {output_path} ({size_kb:.1f} KB)")
+    print(f"  Input:  obs [{OBS_SIZE}]")
+    print(f"  Output: action [{ACTION_SIZE}]")
+
+    if validate:
+        print("\nRunning Rust validator...")
+        try:
+            result = subprocess.run(
+                ["cargo", "run", "-p", "dogfight", "--release", "--", "validate", output_path],
+                capture_output=True,
+                text=True,
+                cwd=Path(__file__).resolve().parent.parent,
+            )
+            print(result.stdout)
+            if result.returncode != 0:
+                print(f"Validator stderr:\n{result.stderr}")
+                sys.exit(1)
+            print("Validation passed!")
+        except FileNotFoundError:
+            print("Warning: cargo not found, skipping Rust validation")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("model", nargs="?", default="training/checkpoints/final.pt",
+                        help="Path to .pt checkpoint")
+    parser.add_argument("-o", "--output", default="policy.onnx",
+                        help="Output ONNX path")
+    parser.add_argument("--no-validate", action="store_true")
+    args = parser.parse_args()
+    export(args.model, args.output, not args.no_validate)
