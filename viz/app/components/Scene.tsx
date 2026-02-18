@@ -13,19 +13,12 @@ import type { Frame } from "../hooks/useMatch";
 extend({
   Mesh: THREE.Mesh,
   Group: THREE.Group,
-  AmbientLight: THREE.AmbientLight,
-  DirectionalLight: THREE.DirectionalLight,
   Color: THREE.Color,
-  BoxGeometry: THREE.BoxGeometry,
-  SphereGeometry: THREE.SphereGeometry,
   CircleGeometry: THREE.CircleGeometry,
   PlaneGeometry: THREE.PlaneGeometry,
-  BufferGeometry: THREE.BufferGeometry,
   ShapeGeometry: THREE.ShapeGeometry,
-  MeshStandardMaterial: THREE.MeshStandardMaterial,
+  RingGeometry: THREE.RingGeometry,
   MeshBasicMaterial: THREE.MeshBasicMaterial,
-  LineBasicMaterial: THREE.LineBasicMaterial,
-  LineSegments: THREE.LineSegments,
 });
 
 interface SceneProps {
@@ -51,14 +44,10 @@ function SceneContent({ frame, trailFrames }: SceneProps) {
 
   return (
     <>
-      {/* Warm lighting — like a hazy afternoon */}
-      <ambientLight intensity={0.7} color="#f5e6c8" />
-      <directionalLight position={[0, 300, 500]} intensity={0.4} color="#fff8e0" />
+      {/* Off-white background */}
+      <color attach="background" args={["#f8f8f8"]} />
 
-      {/* Background — matches sky gradient top edge */}
-      <color attach="background" args={["#61a6e0"]} />
-
-      {/* Pan/zoom only — target center of arena so the full play area fills the screen */}
+      {/* Pan/zoom only */}
       <OrbitControls
         enableRotate={false}
         enableDamping
@@ -70,19 +59,21 @@ function SceneContent({ frame, trailFrames }: SceneProps) {
 
       <Arena />
 
-      {/* P0 — Allied tan/olive biplane */}
+      {/* P0 — Blue */}
       {frame && frame.fighters[0] && (
         <Fighter
           state={frame.fighters[0]}
-          color="#c4a050"
+          color="#2563eb"
+          label="P0"
           trail={trails[0]}
         />
       )}
-      {/* P1 — Red Baron */}
+      {/* P1 — Red */}
       {frame && frame.fighters[1] && (
         <Fighter
           state={frame.fighters[1]}
-          color="#b83030"
+          color="#dc2626"
+          label="P1"
           trail={trails[1]}
         />
       )}
@@ -104,7 +95,7 @@ export default function Scene({ frame, cameraMode, trailFrames }: SceneProps) {
       orthographic
       camera={{
         position: [0, 300, 500],
-        zoom: 1.1,
+        zoom: 0.95,
         near: 1,
         far: 1000,
         up: [0, 1, 0],

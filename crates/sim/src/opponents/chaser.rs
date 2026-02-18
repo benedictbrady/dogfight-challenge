@@ -61,10 +61,11 @@ impl Policy for ChaserPolicy {
         }
 
         if self.evade_timer > 0 {
-            // During evasion, still take opportunistic shots
+            // During evasion, still take opportunistic shots (skip rear-aspect)
             let can_shoot = ts.angle_off_nose.abs() < 0.3
                 && ts.distance < 320.0
-                && ts.gun_cooldown < 0.01;
+                && ts.gun_cooldown < 0.01
+                && !ts.would_be_rear_aspect_shot;
 
             return Action {
                 yaw_input: self.evade_dir,
@@ -88,15 +89,12 @@ impl Policy for ChaserPolicy {
             }
         }
 
-        // Full lead pursuit (100% lead prediction)
-        let desired_yaw = lead_aim(
-            ts.rel_x,
-            ts.rel_y,
-            ts.opp_speed,
-            ts.opp_yaw,
-            ts.distance,
-            1.0,
-        );
+        // Use crossing aim when behind opponent (rear-aspect armor makes tailing useless)
+        let desired_yaw = if ts.am_behind_opponent {
+            crossing_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
+        } else {
+            lead_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
+        };
         let mut yaw_diff = angle_diff(desired_yaw, ts.my_yaw);
 
         // Apply yo-yo bias
@@ -114,17 +112,20 @@ impl Policy for ChaserPolicy {
         let yaw_input = (yaw_diff * 2.5).clamp(-1.0, 1.0);
 
         // Throttle management: reduce during hard turns at high speed
-        let throttle = if ts.my_speed > 120.0 && yaw_input.abs() > 0.7 {
+        let throttle: f32 = if ts.my_speed > 120.0 && yaw_input.abs() > 0.7 {
             0.7
         } else {
             1.0
         };
 
-        // Shooting: 0.22 rad angle, 320m range
+        // Shooting: 0.22 rad angle, 320m range, skip rear-aspect shots
         let well_aimed = ts.angle_off_nose.abs() < 0.22;
         let in_range = ts.distance < 320.0;
         let gun_ready = ts.gun_cooldown < 0.01;
-        let shoot = well_aimed && in_range && gun_ready;
+        let shoot = well_aimed && in_range && gun_ready && !ts.would_be_rear_aspect_shot;
+
+        let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
+        let throttle = throttle.max(min_throttle);
 
         Action {
             yaw_input,

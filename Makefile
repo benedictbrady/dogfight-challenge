@@ -1,4 +1,4 @@
-.PHONY: build test run serve dev viz tournament clean
+.PHONY: build test run serve dev viz tournament clean pyenv train train-eval export
 
 # Build the Rust workspace in release mode
 build:
@@ -46,6 +46,31 @@ tournament:
 MODEL ?= model.onnx
 validate:
 	cargo run -p dogfight --release -- validate $(MODEL)
+
+# Analyze battle dynamics
+ANALYZE_POLICIES ?= chaser,dogfighter,ace,brawler
+ANALYZE_SEEDS ?= 5
+LABEL ?=
+analyze:
+	cargo run -p dogfight --release -- analyze --policies $(ANALYZE_POLICIES) --seeds $(ANALYZE_SEEDS) $(if $(LABEL),--label $(LABEL),) --randomize
+
+# Build PyO3 Python module (requires maturin + venv)
+pyenv:
+	cd crates/pyenv && maturin develop --release
+
+# Train RL agent
+CURRICULUM ?= do_nothing:50,dogfighter:100,chaser:150,ace:200
+train:
+	cd training && python train.py --curriculum $(CURRICULUM)
+
+# Evaluate trained model against all opponents
+CKPT ?= training/checkpoints/final.pt
+train-eval:
+	cd training && python eval.py $(CKPT)
+
+# Export trained model to ONNX
+export:
+	cd training && python export_onnx.py $(CKPT)
 
 # Clean build artifacts
 clean:

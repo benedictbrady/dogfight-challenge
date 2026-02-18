@@ -1,11 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import Scene from "./components/Scene";
 import Controls from "./components/Controls";
 import MatchSetup from "./components/MatchSetup";
 import DebugOverlay from "./components/DebugOverlay";
 import { useMatch, MatchConfig, Frame } from "./hooks/useMatch";
+
+const DEFAULT_FRAME: Frame = {
+  tick: 0,
+  fighters: [
+    { x: -200, y: 300, yaw: 0, speed: 40, hp: 5, alive: true },
+    { x: 200, y: 300, yaw: Math.PI, speed: 40, hp: 5, alive: true },
+  ],
+  bullets: [],
+  hits: [],
+};
 
 export default function Home() {
   const {
@@ -22,19 +32,32 @@ export default function Home() {
   } = useMatch();
 
   const [cameraMode] = useState<"free" | "chase0" | "chase1">("free");
+  const [spawnFrame, setSpawnFrame] = useState<Frame>(DEFAULT_FRAME);
 
-  // Default frame: both planes at starting positions before match begins
-  const idleFrame = useMemo<Frame>(() => ({
-    tick: 0,
-    fighters: [
-      { x: -200, y: 300, yaw: 0, speed: 40, hp: 3, alive: true },
-      { x: 200, y: 300, yaw: Math.PI, speed: 40, hp: 3, alive: true },
-    ],
-    bullets: [],
-    hits: [],
-  }), []);
+  // Fetch starting positions for a given seed
+  const fetchSpawn = useCallback(async (seed: number) => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/spawn?seed=${seed}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.fighters && data.fighters.length === 2) {
+          setSpawnFrame({
+            tick: 0,
+            fighters: [
+              { ...data.fighters[0], alive: true },
+              { ...data.fighters[1], alive: true },
+            ],
+            bullets: [],
+            hits: [],
+          });
+        }
+      }
+    } catch {
+      // Server offline — keep default positions
+    }
+  }, []);
 
-  const currentFrame = frames[currentFrameIndex] ?? idleFrame;
+  const currentFrame = frames[currentFrameIndex] ?? spawnFrame;
   const prevFrame = currentFrameIndex > 0 ? (frames[currentFrameIndex - 1] ?? null) : null;
   const totalFrames = frames.length;
 
@@ -43,36 +66,36 @@ export default function Home() {
   };
 
   return (
-    <div className="w-screen h-screen flex flex-col bg-[#1c1a14]">
+    <div className="w-screen h-screen flex flex-col bg-[#f8f8f8]">
       {/* Top bar */}
-      <div className="flex-shrink-0 h-10 bg-[#1c1a14] border-b border-[#3a3526] flex items-center px-4 gap-4 z-10">
-        <span className="text-sm font-bold text-[#c4b894] tracking-[0.15em]">
+      <div className="flex-shrink-0 h-10 bg-white border-b border-gray-200 flex items-center px-4 gap-4 z-10">
+        <span className="text-sm font-bold text-gray-800 tracking-[0.15em]">
           DOGFIGHT
         </span>
 
         {/* P0 health bar */}
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-[#c4a050]">P0</span>
-          <div className="w-24 h-3 bg-[#2a2015] rounded-sm border border-[#3a3526] overflow-hidden">
+          <span className="text-xs font-bold text-blue-600">P0</span>
+          <div className="w-24 h-3 bg-gray-100 rounded-sm border border-gray-200 overflow-hidden">
             <div
-              className="h-full bg-[#c4a050] transition-all duration-200"
-              style={{ width: `${(currentFrame.fighters[0].hp / 3) * 100}%` }}
+              className="h-full bg-blue-500 transition-all duration-200"
+              style={{ width: `${(currentFrame.fighters[0].hp / 5) * 100}%` }}
             />
           </div>
         </div>
 
         {/* P1 health bar */}
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-[#b83030]">P1</span>
-          <div className="w-24 h-3 bg-[#2a2015] rounded-sm border border-[#3a3526] overflow-hidden">
+          <span className="text-xs font-bold text-red-600">P1</span>
+          <div className="w-24 h-3 bg-gray-100 rounded-sm border border-gray-200 overflow-hidden">
             <div
-              className="h-full bg-[#b83030] transition-all duration-200"
-              style={{ width: `${(currentFrame.fighters[1].hp / 3) * 100}%` }}
+              className="h-full bg-red-500 transition-all duration-200"
+              style={{ width: `${(currentFrame.fighters[1].hp / 5) * 100}%` }}
             />
           </div>
         </div>
 
-        <span className="text-xs text-[#6b5a40]">
+        <span className="text-xs text-gray-500">
           {totalFrames > 0
             ? `Frame ${currentFrameIndex + 1}/${totalFrames}`
             : "Ready"}
@@ -83,18 +106,18 @@ export default function Home() {
             <span
               className={
                 matchResult.winner === 0
-                  ? "text-[#c4a050]"
+                  ? "text-blue-600"
                   : matchResult.winner === 1
-                  ? "text-[#b83030]"
-                  : "text-[#8b7a58]"
+                  ? "text-red-600"
+                  : "text-gray-500"
               }
             >
               {matchResult.winner === null
                 ? "Draw"
-                : `Pilot ${matchResult.winner} wins`}
+                : `Player ${matchResult.winner} wins`}
             </span>
             {matchResult.reason && (
-              <span className="text-[#6b5a40] ml-2">({matchResult.reason})</span>
+              <span className="text-gray-400 ml-2">({matchResult.reason})</span>
             )}
           </span>
         )}
@@ -102,8 +125,12 @@ export default function Home() {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left sidebar */}
-        <div className="flex-shrink-0 w-64 bg-[#1c1a14]/90 border-r border-[#3a3526] overflow-y-auto z-10">
-          <MatchSetup onStartMatch={handleStartMatch} isConnected={isConnected} />
+        <div className="flex-shrink-0 w-64 bg-white/95 backdrop-blur-sm border-r border-gray-200 overflow-y-auto z-10">
+          <MatchSetup
+            onStartMatch={handleStartMatch}
+            onSeedChange={fetchSpawn}
+            isConnected={isConnected}
+          />
         </div>
 
         {/* Scene */}
@@ -111,10 +138,7 @@ export default function Home() {
           <Scene
             frame={currentFrame}
             cameraMode={cameraMode}
-            trailFrames={frames.slice(
-              Math.max(0, currentFrameIndex - 60),
-              currentFrameIndex + 1
-            )}
+            trailFrames={frames.slice(0, currentFrameIndex + 1)}
           />
           <DebugOverlay
             frame={currentFrame}

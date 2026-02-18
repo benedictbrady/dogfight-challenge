@@ -4,7 +4,7 @@ pub const DT: f32 = 1.0 / TICK_RATE as f32;
 pub const TICK_DURATION_US: u64 = 8333;
 
 // Match
-pub const MATCH_DURATION_SECS: u32 = 60;
+pub const MATCH_DURATION_SECS: u32 = 90;
 pub const MAX_TICKS: u32 = TICK_RATE * MATCH_DURATION_SECS; // 7200
 
 // Arena (side-view: X=horizontal, Y=altitude)
@@ -20,19 +20,31 @@ pub const ALT_BOUNDARY_HIGH: f32 = 550.0;
 // Fighter
 pub const FIGHTER_RADIUS: f32 = 8.0;
 pub const MAX_SPEED: f32 = 250.0;
-pub const MIN_SPEED: f32 = 40.0;
+pub const MIN_SPEED: f32 = 20.0;
 pub const MAX_THRUST: f32 = 180.0;
 pub const DRAG_COEFF: f32 = 0.9;
 pub const MAX_TURN_RATE: f32 = 4.0;
 pub const MIN_TURN_RATE: f32 = 0.8;
-pub const TURN_BLEED_COEFF: f32 = 0.15;
-pub const MAX_HP: u8 = 3;
+pub const TURN_BLEED_COEFF: f32 = 0.25;
+pub const MAX_HP: u8 = 5;
+
+// Stall mechanic
+pub const STALL_SPEED: f32 = 30.0;
+pub const STALL_RECOVERY_TICKS: u32 = 36; // ~0.3s at 120Hz
+pub const STALL_NOSE_DOWN_RATE: f32 = 2.5; // rad/s
+
+// Damage degradation
+pub const DAMAGE_SPEED_PENALTY: f32 = 0.03; // 3% max speed per HP lost
+pub const DAMAGE_TURN_PENALTY: f32 = 0.02;  // 2% turn rate per HP lost
 
 // Bullets
 pub const BULLET_SPEED: f32 = 400.0;
-pub const BULLET_LIFETIME_TICKS: u32 = 90; // 0.75s at 120Hz
+pub const BULLET_LIFETIME_TICKS: u32 = 60; // 0.5s at 120Hz
 pub const BULLET_RADIUS: f32 = 3.0;
-pub const GUN_COOLDOWN_TICKS: u32 = 60; // 0.5s at 120Hz
+pub const GUN_COOLDOWN_TICKS: u32 = 90; // 0.75s at 120Hz
+
+// Rear-aspect armor: bullets from within this cone behind the target do no damage
+pub const REAR_ASPECT_CONE: f32 = 0.785; // PI/4 = 45° half-angle
 pub const GUN_COOLDOWN_SECS: f32 = GUN_COOLDOWN_TICKS as f32 / TICK_RATE as f32;
 
 // Observation

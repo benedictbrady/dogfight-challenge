@@ -5,16 +5,23 @@ import type { MatchConfig } from "../hooks/useMatch";
 
 interface MatchSetupProps {
   onStartMatch: (config: MatchConfig) => void;
+  onSeedChange: (seed: number) => void;
   isConnected: boolean;
 }
 
-export default function MatchSetup({ onStartMatch, isConnected }: MatchSetupProps) {
+export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: MatchSetupProps) {
   const [policies, setPolicies] = useState<string[]>([]);
   const [p0, setP0] = useState("");
   const [p1, setP1] = useState("");
-  const [seed, setSeed] = useState(42);
+  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1000000));
   const [loading, setLoading] = useState(false);
   const [serverOnline, setServerOnline] = useState(false);
+
+  // Notify parent of initial seed so spawn positions load on mount
+  useEffect(() => {
+    onSeedChange(seed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     async function fetchPolicies() {
@@ -41,24 +48,24 @@ export default function MatchSetup({ onStartMatch, isConnected }: MatchSetupProp
   const handleStart = () => {
     if (!p0 || !p1) return;
     setLoading(true);
-    onStartMatch({ p0, p1, seed });
+    onStartMatch({ p0, p1, seed, randomize_spawns: true });
     setTimeout(() => setLoading(false), 1000);
   };
 
   return (
     <div className="p-4 space-y-4">
-      <h2 className="text-sm font-semibold text-[#c4b894] uppercase tracking-[0.2em]">
-        Sortie Orders
+      <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-[0.2em]">
+        Match Setup
       </h2>
 
       {/* Player 0 */}
       <div>
-        <label className="block text-xs text-[#c4a050] mb-1">
-          Pilot 0 (Tan)
+        <label className="block text-xs text-blue-600 mb-1 font-medium">
+          Player 0 (Blue)
         </label>
         {policies.length > 0 ? (
           <select
-            className="w-full bg-[#2a2618] text-[#d4c8a0] text-sm rounded px-2 py-1.5 border border-[#4a4030] focus:border-[#8b7748] focus:outline-none"
+            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-indigo-500 focus:outline-none"
             value={p0}
             onChange={(e) => setP0(e.target.value)}
           >
@@ -71,7 +78,7 @@ export default function MatchSetup({ onStartMatch, isConnected }: MatchSetupProp
         ) : (
           <input
             type="text"
-            className="w-full bg-[#2a2618] text-[#d4c8a0] text-sm rounded px-2 py-1.5 border border-[#4a4030] focus:border-[#8b7748] focus:outline-none"
+            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-indigo-500 focus:outline-none"
             placeholder="Policy name..."
             value={p0}
             onChange={(e) => setP0(e.target.value)}
@@ -81,12 +88,12 @@ export default function MatchSetup({ onStartMatch, isConnected }: MatchSetupProp
 
       {/* Player 1 */}
       <div>
-        <label className="block text-xs text-[#b83030] mb-1">
-          Pilot 1 (Red)
+        <label className="block text-xs text-red-600 mb-1 font-medium">
+          Player 1 (Red)
         </label>
         {policies.length > 0 ? (
           <select
-            className="w-full bg-[#2a2618] text-[#d4c8a0] text-sm rounded px-2 py-1.5 border border-[#4a4030] focus:border-[#8b3030] focus:outline-none"
+            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-red-500 focus:outline-none"
             value={p1}
             onChange={(e) => setP1(e.target.value)}
           >
@@ -99,7 +106,7 @@ export default function MatchSetup({ onStartMatch, isConnected }: MatchSetupProp
         ) : (
           <input
             type="text"
-            className="w-full bg-[#2a2618] text-[#d4c8a0] text-sm rounded px-2 py-1.5 border border-[#4a4030] focus:border-[#8b3030] focus:outline-none"
+            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-red-500 focus:outline-none"
             placeholder="Policy name..."
             value={p1}
             onChange={(e) => setP1(e.target.value)}
@@ -109,38 +116,42 @@ export default function MatchSetup({ onStartMatch, isConnected }: MatchSetupProp
 
       {/* Seed */}
       <div>
-        <label className="block text-xs text-[#8b7a58] mb-1">Seed</label>
+        <label className="block text-xs text-gray-500 mb-1">Seed</label>
         <input
           type="number"
-          className="w-full bg-[#2a2618] text-[#d4c8a0] text-sm rounded px-2 py-1.5 border border-[#4a4030] focus:border-[#8b7748] focus:outline-none"
+          className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-indigo-500 focus:outline-none"
           value={seed}
-          onChange={(e) => setSeed(Number(e.target.value))}
+          onChange={(e) => {
+            const newSeed = Number(e.target.value);
+            setSeed(newSeed);
+            onSeedChange(newSeed);
+          }}
         />
       </div>
 
       {/* Start button */}
       <button
         className="w-full py-2 rounded text-sm font-semibold tracking-wider transition-colors disabled:opacity-40
-          bg-[#5a4a28] hover:bg-[#6b5a32] text-[#e8d8a8] border border-[#8b7748]"
+          bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-700"
         onClick={handleStart}
         disabled={loading || (!p0 && !p1)}
       >
-        {loading ? "Scrambling..." : isConnected ? "New Sortie" : "Scramble!"}
+        {loading ? "Starting..." : isConnected ? "New Match" : "Start Match"}
       </button>
 
       {/* Connection status */}
-      <div className="flex items-center gap-2 text-xs text-[#6b5a40]">
+      <div className="flex items-center gap-2 text-xs text-gray-500">
         <div
           className={`w-2 h-2 rounded-full ${
-            serverOnline ? "bg-[#6b8b40]" : "bg-[#8b3030]"
+            serverOnline ? "bg-green-500" : "bg-red-500"
           }`}
         />
-        {isConnected ? "On sortie" : serverOnline ? "HQ online" : "No signal"}
+        {isConnected ? "Match active" : serverOnline ? "Server online" : "No signal"}
       </div>
 
       {/* Info */}
-      <div className="mt-4 text-xs text-[#5a4a38] space-y-1">
-        <p>HQ: ws://localhost:3001</p>
+      <div className="mt-4 text-xs text-gray-400 space-y-1">
+        <p>Server: ws://localhost:3001</p>
         <p>Controls:</p>
         <p className="pl-2">- Scroll to zoom</p>
         <p className="pl-2">- Right-click drag to pan</p>

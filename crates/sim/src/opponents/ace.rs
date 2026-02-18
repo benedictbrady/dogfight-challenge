@@ -92,11 +92,15 @@ impl AcePolicy {
 
         let can_shoot = ts.angle_off_nose.abs() < 0.30
             && ts.distance < 380.0
-            && ts.gun_cooldown < 0.01;
+            && ts.gun_cooldown < 0.01
+            && !ts.would_be_rear_aspect_shot;
+
+        let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, evade_yaw);
+        let throttle = 0.7f32.max(min_throttle);
 
         Action {
-            yaw_input: evade_yaw,
-            throttle: 0.7,
+            yaw_input,
+            throttle,
             shoot: can_shoot,
         }
     }
@@ -111,12 +115,16 @@ impl AcePolicy {
         let yaw_input = yaw_toward(target_yaw, ts.my_yaw, 3.5);
 
         // Slow down for tighter defensive turns
-        let throttle = if ts.my_speed > 100.0 { 0.3 } else { 0.5 };
+        let throttle: f32 = if ts.my_speed > 100.0 { 0.3 } else { 0.5 };
 
-        // Wide shoot angle during defense — take any shot opportunity
+        // Wide shoot angle during defense — take any shot opportunity (skip rear-aspect)
         let can_shoot = ts.angle_off_nose.abs() < 0.35
             && ts.distance < 350.0
-            && ts.gun_cooldown < 0.01;
+            && ts.gun_cooldown < 0.01
+            && !ts.would_be_rear_aspect_shot;
+
+        let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
+        let throttle = throttle.max(min_throttle);
 
         Action {
             yaw_input,
@@ -125,11 +133,13 @@ impl AcePolicy {
         }
     }
 
-    /// Standard pursuit: lead aim with altitude bias
+    /// Standard pursuit: lead aim (crossing when behind) with altitude bias
     fn act_pursue(&self, ts: &TacticalState) -> Action {
-        let desired_yaw = lead_aim(
-            ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0,
-        );
+        let desired_yaw = if ts.am_behind_opponent {
+            crossing_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
+        } else {
+            lead_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
+        };
         let mut yaw_diff = angle_diff(desired_yaw, ts.my_yaw);
 
         // Altitude management: prefer 320-460m band (higher than other policies)
@@ -153,7 +163,7 @@ impl AcePolicy {
         let yaw_input = (yaw_diff * 3.0).clamp(-1.0, 1.0);
 
         // Throttle management
-        let throttle = if ts.my_speed < 80.0 {
+        let throttle: f32 = if ts.my_speed < 80.0 {
             1.0
         } else if yaw_input.abs() > 0.7 {
             0.5
@@ -163,10 +173,14 @@ impl AcePolicy {
             0.7
         };
 
-        // Tight shooting — fewer but more accurate shots
+        // Tight shooting — fewer but more accurate shots (skip rear-aspect)
         let shoot = ts.angle_off_nose.abs() < 0.20
             && ts.distance < 380.0
-            && ts.gun_cooldown < 0.01;
+            && ts.gun_cooldown < 0.01
+            && !ts.would_be_rear_aspect_shot;
+
+        let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
+        let throttle = throttle.max(min_throttle);
 
         Action {
             yaw_input,
