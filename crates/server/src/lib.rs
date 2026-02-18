@@ -5,13 +5,13 @@ use axum::{
     Json, Router,
 };
 use dogfight_shared::*;
-use dogfight_sim::opponents::{ChaserPolicy, DogfighterPolicy};
+use dogfight_sim::opponents::{AcePolicy, BrawlerPolicy, ChaserPolicy, DogfighterPolicy};
 use dogfight_sim::{run_match, DoNothingPolicy, Policy};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
 /// Available built-in policy names.
-const AVAILABLE_POLICIES: &[&str] = &["dogfighter", "chaser", "do_nothing"];
+const AVAILABLE_POLICIES: &[&str] = &["dogfighter", "chaser", "ace", "brawler", "do_nothing"];
 
 // ---------------------------------------------------------------------------
 // Serde types for WebSocket messages
@@ -75,8 +75,10 @@ struct ErrorMessage {
 pub fn resolve_policy(name: &str) -> Box<dyn Policy> {
     match name {
         "do_nothing" => Box::new(DoNothingPolicy),
-        "chaser" => Box::new(ChaserPolicy),
+        "chaser" => Box::new(ChaserPolicy::new()),
         "dogfighter" => Box::new(DogfighterPolicy::new()),
+        "ace" => Box::new(AcePolicy::new()),
+        "brawler" => Box::new(BrawlerPolicy::new()),
         other => panic!("unknown policy: {other}"),
     }
 }
@@ -85,8 +87,10 @@ pub fn resolve_policy(name: &str) -> Box<dyn Policy> {
 fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
     match name {
         "do_nothing" => Some(Box::new(DoNothingPolicy)),
-        "chaser" => Some(Box::new(ChaserPolicy)),
+        "chaser" => Some(Box::new(ChaserPolicy::new())),
         "dogfighter" => Some(Box::new(DogfighterPolicy::new())),
+        "ace" => Some(Box::new(AcePolicy::new())),
+        "brawler" => Some(Box::new(BrawlerPolicy::new())),
         _ => None,
     }
 }

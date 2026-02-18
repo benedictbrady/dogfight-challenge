@@ -1,10 +1,33 @@
 use dogfight_shared::*;
 use crate::policy::Policy;
-use std::f32::consts::PI;
+use super::tactics::*;
 
-/// Easy opponent: partial lead pursuit with altitude management and range-limited shooting.
-/// Still no evasion, no throttle management, no energy management.
-pub struct ChaserPolicy;
+/// Upgraded pressure fighter: relentless pursuit with yo-yo maneuvers and bullet evasion.
+/// Beats Brawler (constant pressure prevents slow turn-fights), loses to Ace (can't catch altitude).
+pub struct ChaserPolicy {
+    evade_timer: u32,
+    evade_dir: f32,
+    yo_yo_timer: u32,
+    /// 1.0 = high yo-yo (pull up), -1.0 = low yo-yo (push down)
+    yo_yo_phase: f32,
+}
+
+impl ChaserPolicy {
+    pub fn new() -> Self {
+        Self {
+            evade_timer: 0,
+            evade_dir: 1.0,
+            yo_yo_timer: 0,
+            yo_yo_phase: 0.0,
+        }
+    }
+}
+
+impl Default for ChaserPolicy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Policy for ChaserPolicy {
     fn name(&self) -> &str {
@@ -12,74 +35,103 @@ impl Policy for ChaserPolicy {
     }
 
     fn act(&mut self, obs: &Observation) -> Action {
-        let d = &obs.data;
+        let ts = extract_tactical_state(obs);
 
-        // Extract self state
-        let my_yaw = f32::atan2(d[2], d[1]);
-        let altitude = d[5] * MAX_ALTITUDE;
-
-        // Extract opponent relative position (un-normalize)
-        let rel_x = d[6] * ARENA_DIAMETER;
-        let rel_y = d[7] * ARENA_DIAMETER;
-        let opp_speed = d[8] * MAX_SPEED;
-        let opp_yaw = f32::atan2(d[10], d[9]);
-        let distance = d[12] * ARENA_DIAMETER;
-
-        // Emergency ground avoidance: pull up hard when low and diving
-        let heading_down = my_yaw.sin() < -0.3;
-        if altitude < 80.0 && heading_down {
-            let pull_up_yaw = if my_yaw.cos() > 0.0 { 1.0 } else { -1.0 };
+        // Emergency altitude override
+        if let Some(yaw_input) = altitude_safety(ts.altitude, ts.my_yaw) {
             return Action {
-                yaw_input: pull_up_yaw,
+                yaw_input,
                 throttle: 1.0,
                 shoot: false,
             };
         }
 
-        // Partial lead prediction (30%)
-        let time_to_target = distance / BULLET_SPEED;
-        let opp_fwd_x = opp_yaw.cos();
-        let opp_fwd_y = opp_yaw.sin();
-        let lead_x = rel_x + opp_fwd_x * opp_speed * time_to_target * 0.3;
-        let lead_y = rel_y + opp_fwd_y * opp_speed * time_to_target * 0.3;
-
-        // Compute desired yaw to predicted position
-        let desired_yaw = f32::atan2(lead_y, lead_x);
-        let mut yaw_diff = angle_diff(desired_yaw, my_yaw);
-
-        // Basic altitude management: bias toward mid-altitude
-        // Nudge upward when below 150m, nudge downward when above 500m
-        if altitude < 150.0 && my_yaw.sin() < 0.1 {
-            yaw_diff += 0.2;
-        } else if altitude > 500.0 && my_yaw.sin() > -0.1 {
-            yaw_diff -= 0.2;
+        // Tick timers
+        if self.evade_timer > 0 {
+            self.evade_timer -= 1;
+        }
+        if self.yo_yo_timer > 0 {
+            self.yo_yo_timer -= 1;
         }
 
-        // Convert to control input [-1, 1]
-        let yaw_input = (yaw_diff * 2.0).clamp(-1.0, 1.0);
+        // Bullet evasion: short 15-tick hard turn when enemy bullet within 80m
+        if ts.nearest_enemy_bullet_dist < 80.0 && self.evade_timer == 0 {
+            self.evade_timer = 15;
+            self.evade_dir = -self.evade_dir;
+        }
 
-        // Range-limited shooting: only shoot within 350m and roughly aimed
-        let shoot = yaw_diff.abs() < 0.26 && distance < 350.0;
-        let gun_ready = d[4] < 0.01;
+        if self.evade_timer > 0 {
+            // During evasion, still take opportunistic shots
+            let can_shoot = ts.angle_off_nose.abs() < 0.3
+                && ts.distance < 320.0
+                && ts.gun_cooldown < 0.01;
+
+            return Action {
+                yaw_input: self.evade_dir,
+                throttle: 0.8,
+                shoot: can_shoot,
+            };
+        }
+
+        // Yo-yo maneuvers to manage energy during pursuit
+        if self.yo_yo_timer == 0 {
+            // High yo-yo: when closing too fast at close range — pull up to bleed speed
+            // and drop behind the opponent
+            if ts.distance < 120.0 && ts.closing_rate > 50.0 && ts.altitude < 500.0 {
+                self.yo_yo_timer = 40;
+                self.yo_yo_phase = 1.0; // pull up
+            }
+            // Low yo-yo: when separating and distant — dive to gain speed for catch-up
+            else if ts.distance > 300.0 && ts.closing_rate < -20.0 && ts.altitude > 150.0 {
+                self.yo_yo_timer = 30;
+                self.yo_yo_phase = -1.0; // push down
+            }
+        }
+
+        // Full lead pursuit (100% lead prediction)
+        let desired_yaw = lead_aim(
+            ts.rel_x,
+            ts.rel_y,
+            ts.opp_speed,
+            ts.opp_yaw,
+            ts.distance,
+            1.0,
+        );
+        let mut yaw_diff = angle_diff(desired_yaw, ts.my_yaw);
+
+        // Apply yo-yo bias
+        if self.yo_yo_timer > 0 {
+            yaw_diff += self.yo_yo_phase * 0.4;
+        }
+
+        // Altitude management: nudge toward mid-altitude band
+        if ts.altitude < 120.0 && ts.my_yaw.sin() < 0.1 {
+            yaw_diff += 0.25;
+        } else if ts.altitude > 520.0 && ts.my_yaw.sin() > -0.1 {
+            yaw_diff -= 0.25;
+        }
+
+        let yaw_input = (yaw_diff * 2.5).clamp(-1.0, 1.0);
+
+        // Throttle management: reduce during hard turns at high speed
+        let throttle = if ts.my_speed > 120.0 && yaw_input.abs() > 0.7 {
+            0.7
+        } else {
+            1.0
+        };
+
+        // Shooting: 0.22 rad angle, 320m range
+        let well_aimed = ts.angle_off_nose.abs() < 0.22;
+        let in_range = ts.distance < 320.0;
+        let gun_ready = ts.gun_cooldown < 0.01;
+        let shoot = well_aimed && in_range && gun_ready;
 
         Action {
             yaw_input,
-            throttle: 1.0,
-            shoot: shoot && gun_ready,
+            throttle,
+            shoot,
         }
     }
-}
-
-/// Compute shortest angular difference.
-fn angle_diff(target: f32, current: f32) -> f32 {
-    let mut diff = target - current;
-    while diff > PI {
-        diff -= 2.0 * PI;
-    }
-    while diff < -PI {
-        diff += 2.0 * PI;
-    }
-    diff
 }
 
 #[cfg(test)]
@@ -91,11 +143,11 @@ mod tests {
     fn test_chaser_produces_actions() {
         let state = SimState::new();
         let obs = state.observe(0);
-        let mut chaser = ChaserPolicy;
+        let mut chaser = ChaserPolicy::new();
         let action = chaser.act(&obs);
 
-        // Player faces east (yaw=0), opponent is east → yaw_diff ≈ 0
+        // Player faces east (yaw=0), opponent is east -> yaw_diff ~ 0
         assert!(action.yaw_input.abs() < 0.5);
-        assert_eq!(action.throttle, 1.0);
+        assert!(action.throttle > 0.0);
     }
 }
