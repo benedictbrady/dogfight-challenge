@@ -192,6 +192,10 @@ def train_selfplay(args):
     last_snapshot_elo = learner_elo
     elo_milestones_hit = set()
 
+    # Scripted eval tracking — only alert after crossing threshold once
+    best_scripted_wr = 0.0
+    last_scripted_wr = 0.0
+
     total_updates = start_update
     t_start = time.time()
 
@@ -471,12 +475,19 @@ def train_selfplay(args):
             )
             model.train()
             writer.add_scalar("eval/brawler_win_rate", brawler_wr, global_step)
-            print(f"  [eval] vs {args.scripted_eval_opponent}: {brawler_wr:.0%}")
+            print(f"  [eval] vs {args.scripted_eval_opponent}: {brawler_wr:.0%} (best: {best_scripted_wr:.0%})")
 
-            if brawler_wr < args.regression_threshold:
-                slack_notify(
-                    f":warning: *{run_name}* regression — {args.scripted_eval_opponent} WR {brawler_wr:.0%} < {args.regression_threshold:.0%} at update {total_updates}"
-                )
+            # Alert on regression: only after we've crossed the threshold once,
+            # and only if WR dropped significantly from peak or from last eval
+            drop_from_best = best_scripted_wr - brawler_wr
+            drop_from_last = last_scripted_wr - brawler_wr
+            if best_scripted_wr >= args.regression_threshold:
+                if brawler_wr < args.regression_threshold or drop_from_last >= 0.2:
+                    slack_notify(
+                        f":warning: *{run_name}* regression — {args.scripted_eval_opponent} WR {brawler_wr:.0%} (was {best_scripted_wr:.0%}) at update {total_updates}"
+                    )
+            best_scripted_wr = max(best_scripted_wr, brawler_wr)
+            last_scripted_wr = brawler_wr
 
         # Save periodic checkpoint
         if (update + 1) % args.save_every == 0:
