@@ -16,6 +16,20 @@ def orthogonal_init(module, gain=np.sqrt(2)):
             nn.init.zeros_(module.bias)
 
 
+class ResidualBlock(nn.Module):
+    """Pre-norm residual block: LayerNorm -> Linear -> ReLU -> Linear -> + residual."""
+    def __init__(self, dim: int):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.LayerNorm(dim),
+            nn.Linear(dim, dim),
+            nn.ReLU(),
+            nn.Linear(dim, dim),
+        )
+    def forward(self, x):
+        return x + self.net(x)
+
+
 class ActorCritic(nn.Module):
     """Separate-backbone actor-critic network.
 
@@ -30,20 +44,38 @@ class ActorCritic(nn.Module):
     collection and PPO re-evaluation. Clamping happens only before env.step().
     """
 
-    def __init__(self, obs_dim: int = OBS_SIZE, hidden: int = 256):
+    def __init__(self, obs_dim: int = OBS_SIZE, hidden: int = 256, n_blocks: int = 0):
         super().__init__()
-        self.backbone_actor = nn.Sequential(
-            nn.Linear(obs_dim, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
-        )
-        self.backbone_critic = nn.Sequential(
-            nn.Linear(obs_dim, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
-        )
+        self.hidden = hidden
+        self.n_blocks = n_blocks
+
+        if n_blocks > 0:
+            # Residual backbone
+            self.backbone_actor = nn.Sequential(
+                nn.Linear(obs_dim, hidden),
+                nn.ReLU(),
+                *[ResidualBlock(hidden) for _ in range(n_blocks)],
+            )
+            self.backbone_critic = nn.Sequential(
+                nn.Linear(obs_dim, hidden),
+                nn.ReLU(),
+                *[ResidualBlock(hidden) for _ in range(n_blocks)],
+            )
+        else:
+            # Legacy 2-layer MLP (backward compatible with old checkpoints)
+            self.backbone_actor = nn.Sequential(
+                nn.Linear(obs_dim, hidden),
+                nn.ReLU(),
+                nn.Linear(hidden, hidden),
+                nn.ReLU(),
+            )
+            self.backbone_critic = nn.Sequential(
+                nn.Linear(obs_dim, hidden),
+                nn.ReLU(),
+                nn.Linear(hidden, hidden),
+                nn.ReLU(),
+            )
+
         # Continuous head: 2 outputs (yaw_mean, throttle_mean) — raw, unbounded
         self.cont_head = nn.Linear(hidden, 2)
         # Discrete head (shoot)
@@ -136,14 +168,21 @@ class ActorOnly(nn.Module):
     Uses clamp to match training behavior (NOT tanh/sigmoid).
     """
 
-    def __init__(self, obs_dim: int = OBS_SIZE, hidden: int = 256):
+    def __init__(self, obs_dim: int = OBS_SIZE, hidden: int = 256, n_blocks: int = 0):
         super().__init__()
-        self.backbone = nn.Sequential(
-            nn.Linear(obs_dim, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
-        )
+        if n_blocks > 0:
+            self.backbone = nn.Sequential(
+                nn.Linear(obs_dim, hidden),
+                nn.ReLU(),
+                *[ResidualBlock(hidden) for _ in range(n_blocks)],
+            )
+        else:
+            self.backbone = nn.Sequential(
+                nn.Linear(obs_dim, hidden),
+                nn.ReLU(),
+                nn.Linear(hidden, hidden),
+                nn.ReLU(),
+            )
         self.cont_head = nn.Linear(hidden, 2)
         self.shoot_head = nn.Linear(hidden, 1)
 
@@ -158,7 +197,7 @@ class ActorOnly(nn.Module):
     @staticmethod
     def from_actor_critic(ac: ActorCritic) -> "ActorOnly":
         """Extract actor weights from a trained ActorCritic."""
-        actor = ActorOnly()
+        actor = ActorOnly(hidden=ac.hidden, n_blocks=ac.n_blocks)
         actor.backbone.load_state_dict(ac.backbone_actor.state_dict())
         actor.cont_head.load_state_dict(ac.cont_head.state_dict())
         actor.shoot_head.load_state_dict(ac.shoot_head.state_dict())
