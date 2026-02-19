@@ -23,6 +23,28 @@ pub struct SimConfig {
     pub rear_aspect_cone: f32,
 }
 
+impl SimConfig {
+    /// Convert config parameters to a normalized observation array.
+    /// Each parameter is divided by a fixed denominator to produce values in [0, ~1].
+    pub fn to_obs_array(&self) -> [f32; crate::CONFIG_OBS_SIZE] {
+        [
+            self.gravity / crate::CONFIG_NORM_GRAVITY,
+            self.drag_coeff / crate::CONFIG_NORM_DRAG_COEFF,
+            self.turn_bleed_coeff / crate::CONFIG_NORM_TURN_BLEED_COEFF,
+            self.max_speed / crate::CONFIG_NORM_MAX_SPEED,
+            self.min_speed / crate::CONFIG_NORM_MIN_SPEED,
+            self.max_thrust / crate::CONFIG_NORM_MAX_THRUST,
+            self.bullet_speed / crate::CONFIG_NORM_BULLET_SPEED,
+            self.gun_cooldown_ticks as f32 / crate::CONFIG_NORM_GUN_COOLDOWN_TICKS,
+            self.bullet_lifetime_ticks as f32 / crate::CONFIG_NORM_BULLET_LIFETIME_TICKS,
+            self.max_hp as f32 / crate::CONFIG_NORM_MAX_HP,
+            self.max_turn_rate / crate::CONFIG_NORM_MAX_TURN_RATE,
+            self.min_turn_rate / crate::CONFIG_NORM_MIN_TURN_RATE,
+            self.rear_aspect_cone / crate::CONFIG_NORM_REAR_ASPECT_CONE,
+        ]
+    }
+}
+
 impl Default for SimConfig {
     fn default() -> Self {
         Self {

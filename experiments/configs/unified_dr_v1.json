@@ -1,0 +1,109 @@
+{
+  "script": "train_unified_dr",
+  "model": {
+    "hidden": 768,
+    "n_blocks": 4,
+    "obs_dim": 59
+  },
+  "training": {
+    "n_envs": 256,
+    "n_steps": 2048,
+    "action_repeat": 10,
+    "n_epochs": 4,
+    "minibatch_size": 4096,
+    "fp16": true,
+    "lr": 3e-4,
+    "anneal_lr": true,
+    "gamma": 0.999,
+    "gae_lambda": 0.95,
+    "clip_eps": 0.2,
+    "vf_coef": 0.5,
+    "ent_coef": 0.0,
+    "max_grad_norm": 0.5,
+    "clip_vloss": true,
+    "randomize": true,
+    "save_every": 50
+  },
+  "domain_randomization": {
+    "narrow_until": 200,
+    "narrow_ranges": {
+      "gravity": [60.0, 100.0],
+      "drag_coeff": [0.7, 1.1],
+      "turn_bleed_coeff": [0.15, 0.35],
+      "max_speed": [220.0, 280.0],
+      "min_speed": [15.0, 30.0],
+      "max_thrust": [140.0, 220.0],
+      "bullet_speed": [350.0, 450.0],
+      "gun_cooldown_ticks": [70, 110],
+      "bullet_lifetime_ticks": [45, 75],
+      "max_hp": [4, 7],
+      "max_turn_rate": [3.2, 4.8],
+      "min_turn_rate": [0.6, 1.0],
+      "rear_aspect_cone": [0.5, 1.0]
+    },
+    "full_ranges": {
+      "gravity": [40.0, 120.0],
+      "drag_coeff": [0.5, 1.3],
+      "turn_bleed_coeff": [0.05, 0.45],
+      "max_speed": [180.0, 320.0],
+      "min_speed": [10.0, 40.0],
+      "max_thrust": [100.0, 260.0],
+      "bullet_speed": [300.0, 500.0],
+      "gun_cooldown_ticks": [45, 135],
+      "bullet_lifetime_ticks": [30, 90],
+      "max_hp": [3, 8],
+      "max_turn_rate": [2.5, 5.5],
+      "min_turn_rate": [0.4, 1.2],
+      "rear_aspect_cone": [0.3, 1.2]
+    }
+  },
+  "curriculum": {
+    "updates": 600,
+    "schedule": {
+      "0": ["do_nothing"],
+      "50": ["do_nothing", "dogfighter"],
+      "150": ["dogfighter", "chaser"],
+      "300": ["chaser", "ace"],
+      "500": ["ace", "brawler"]
+    }
+  },
+  "transition": {
+    "updates": 200,
+    "start_scripted_fraction": 1.0,
+    "end_scripted_fraction": 0.2,
+    "reset_std": -1.0
+  },
+  "selfplay": {
+    "updates": 1500,
+    "scripted_fraction": 0.2,
+    "scripted_pool": ["ace", "brawler"],
+    "sampling": "pfsp",
+    "pool_snapshot_every": 50,
+    "pool_max_size": 30,
+    "scripted_eval_every": 20,
+    "scripted_eval_opponent": "brawler",
+    "scripted_eval_matches": 20,
+    "regression_threshold": 0.8,
+    "regime_eval_every": 100
+  },
+  "rewards": {
+    "damage_dealt": 3.0,
+    "damage_taken": -1.0,
+    "win": 5.0,
+    "lose": -5.0,
+    "approach": 0.0001,
+    "alive": 0.0,
+    "proximity": 0.001,
+    "facing": 0.0005
+  },
+  "eval_regimes": {
+    "default": {},
+    "high_gravity": {"gravity": [120.0, 120.0]},
+    "low_gravity": {"gravity": [40.0, 40.0]},
+    "glass_cannon": {"max_hp": [3, 3], "bullet_lifetime_ticks": [75, 75]},
+    "tank_fight": {"max_hp": [8, 8], "gun_cooldown_ticks": [60, 60]},
+    "knife_fight": {"bullet_speed": [300.0, 300.0], "bullet_lifetime_ticks": [30, 30], "max_turn_rate": [5.5, 5.5]},
+    "energy_fighter": {"turn_bleed_coeff": [0.45, 0.45], "drag_coeff": [1.3, 1.3], "max_thrust": [100.0, 100.0]},
+    "sniper": {"bullet_speed": [500.0, 500.0], "bullet_lifetime_ticks": [90, 90], "rear_aspect_cone": [0.3, 0.3]}
+  }
+}

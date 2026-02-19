@@ -5,6 +5,7 @@ import torch.nn as nn
 import numpy as np
 
 OBS_SIZE = 46
+CONFIG_OBS_SIZE = 13
 ACTION_SIZE = 3
 
 # Log-std constants for continuous action distributions
@@ -201,7 +202,9 @@ class ActorOnly(nn.Module):
     @staticmethod
     def from_actor_critic(ac: ActorCritic) -> "ActorOnly":
         """Extract actor weights from a trained ActorCritic."""
-        actor = ActorOnly(hidden=ac.hidden, n_blocks=ac.n_blocks)
+        # Infer obs_dim from first backbone layer
+        obs_dim = ac.backbone_actor[0].in_features
+        actor = ActorOnly(obs_dim=obs_dim, hidden=ac.hidden, n_blocks=ac.n_blocks)
         actor.backbone.load_state_dict(ac.backbone_actor.state_dict())
         actor.cont_head.load_state_dict(ac.cont_head.state_dict())
         actor.shoot_head.load_state_dict(ac.shoot_head.state_dict())

@@ -77,9 +77,10 @@ impl SimConfigRanges {
     }
 
     /// Sample a SimConfig from the ranges. Unset fields use defaults.
+    /// Enforces constraints: min_speed + 50 <= max_speed, min_turn_rate < max_turn_rate.
     fn sample(&self, rng: &mut Pcg64) -> SimConfig {
         let d = SimConfig::default();
-        SimConfig {
+        let mut cfg = SimConfig {
             gravity: self.gravity.map_or(d.gravity, |(lo, hi)| rng.gen_range(lo..=hi)),
             drag_coeff: self.drag_coeff.map_or(d.drag_coeff, |(lo, hi)| rng.gen_range(lo..=hi)),
             turn_bleed_coeff: self.turn_bleed_coeff.map_or(d.turn_bleed_coeff, |(lo, hi)| rng.gen_range(lo..=hi)),
@@ -93,7 +94,15 @@ impl SimConfigRanges {
             max_turn_rate: self.max_turn_rate.map_or(d.max_turn_rate, |(lo, hi)| rng.gen_range(lo..=hi)),
             min_turn_rate: self.min_turn_rate.map_or(d.min_turn_rate, |(lo, hi)| rng.gen_range(lo..=hi)),
             rear_aspect_cone: self.rear_aspect_cone.map_or(d.rear_aspect_cone, |(lo, hi)| rng.gen_range(lo..=hi)),
+        };
+        // Enforce constraints
+        if cfg.min_speed + 50.0 > cfg.max_speed {
+            cfg.max_speed = cfg.min_speed + 50.0;
         }
+        if cfg.min_turn_rate >= cfg.max_turn_rate {
+            cfg.max_turn_rate = cfg.min_turn_rate + 0.1;
+        }
+        cfg
     }
 
     /// Parse from a Python dict: {"gravity": (60.0, 100.0), "bullet_speed": (350.0, 450.0), ...}
@@ -604,13 +613,14 @@ struct BatchEnv {
     weights: RewardWeights,
     rng: Pcg64,
     config_ranges: SimConfigRanges,
+    include_config_obs: bool,
 }
 
 #[pymethods]
 impl BatchEnv {
     #[new]
-    #[pyo3(signature = (n_envs, opponent_pool, randomize_spawns=true, seed=0, action_repeat=1))]
-    fn new(n_envs: usize, opponent_pool: Vec<String>, randomize_spawns: bool, seed: u64, action_repeat: u32) -> PyResult<Self> {
+    #[pyo3(signature = (n_envs, opponent_pool, randomize_spawns=true, seed=0, action_repeat=1, include_config_obs=false))]
+    fn new(n_envs: usize, opponent_pool: Vec<String>, randomize_spawns: bool, seed: u64, action_repeat: u32, include_config_obs: bool) -> PyResult<Self> {
         if opponent_pool.is_empty() {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "opponent_pool must not be empty",
@@ -641,6 +651,7 @@ impl BatchEnv {
             weights: RewardWeights::default(),
             rng,
             config_ranges: SimConfigRanges::default(),
+            include_config_obs,
         })
     }
 
@@ -690,7 +701,7 @@ impl BatchEnv {
         if let Some(v) = facing { self.weights.facing = v; }
     }
 
-    /// Reset all environments. Returns obs as numpy array (n_envs, OBS_SIZE).
+    /// Reset all environments. Returns obs as numpy array (n_envs, effective_obs_size).
     fn reset<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyArray2<f32>> {
         // Generate reset params sequentially (RNG is not Send)
         let params: Vec<(String, u64, SimConfig)> = (0..self.n_envs)
@@ -718,11 +729,17 @@ impl BatchEnv {
             .collect();
 
         // Write directly into numpy buffer
-        let obs_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, OBS_SIZE], false);
+        let effective_obs = if self.include_config_obs { OBS_SIZE + CONFIG_OBS_SIZE } else { OBS_SIZE };
+        let obs_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, effective_obs], false);
         unsafe {
             let buf = obs_py.as_slice_mut().unwrap();
             for (i, obs) in obs_arrays.iter().enumerate() {
-                buf[i * OBS_SIZE..(i + 1) * OBS_SIZE].copy_from_slice(obs);
+                buf[i * effective_obs..i * effective_obs + OBS_SIZE].copy_from_slice(obs);
+                if self.include_config_obs {
+                    let config_obs = self.envs[i].config.to_obs_array();
+                    buf[i * effective_obs + OBS_SIZE..i * effective_obs + effective_obs]
+                        .copy_from_slice(&config_obs);
+                }
             }
         }
         obs_py
@@ -809,7 +826,8 @@ impl BatchEnv {
             .collect();
 
         // Allocate output numpy arrays and write directly into their buffers
-        let obs_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, OBS_SIZE], false);
+        let effective_obs = if self.include_config_obs { OBS_SIZE + CONFIG_OBS_SIZE } else { OBS_SIZE };
+        let obs_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, effective_obs], false);
         let rew_py = PyArray1::<f32>::zeros_bound(py, self.n_envs, false);
         let done_py = PyArray1::<bool>::zeros_bound(py, self.n_envs, false);
 
@@ -827,7 +845,12 @@ impl BatchEnv {
                 } else {
                     &result.obs
                 };
-                obs_buf[i * OBS_SIZE..(i + 1) * OBS_SIZE].copy_from_slice(obs_data);
+                obs_buf[i * effective_obs..i * effective_obs + OBS_SIZE].copy_from_slice(obs_data);
+                if self.include_config_obs {
+                    let config_obs = self.envs[i].config.to_obs_array();
+                    obs_buf[i * effective_obs + OBS_SIZE..i * effective_obs + effective_obs]
+                        .copy_from_slice(&config_obs);
+                }
                 rew_buf[i] = result.reward;
                 done_buf[i] = result.done;
             }
@@ -855,7 +878,7 @@ impl BatchEnv {
 
     #[getter]
     fn obs_size(&self) -> usize {
-        OBS_SIZE
+        if self.include_config_obs { OBS_SIZE + CONFIG_OBS_SIZE } else { OBS_SIZE }
     }
 
     #[getter]
@@ -872,6 +895,12 @@ impl BatchEnv {
     #[setter]
     fn set_action_repeat(&mut self, value: u32) {
         self.action_repeat = value.max(1);
+    }
+
+    /// Whether config observations are included in the observation vector.
+    #[getter]
+    fn include_config_obs(&self) -> bool {
+        self.include_config_obs
     }
 
     /// Set domain randomization ranges. Pass a dict of parameter name → (min, max) tuples.
@@ -1197,13 +1226,14 @@ struct SelfPlayBatchEnv {
     scripted_fraction: f64,
     scripted_pool: Vec<String>,
     config_ranges: SimConfigRanges,
+    include_config_obs: bool,
 }
 
 #[pymethods]
 impl SelfPlayBatchEnv {
     #[new]
-    #[pyo3(signature = (n_envs, randomize_spawns=true, seed=0, action_repeat=1))]
-    fn new(n_envs: usize, randomize_spawns: bool, seed: u64, action_repeat: u32) -> Self {
+    #[pyo3(signature = (n_envs, randomize_spawns=true, seed=0, action_repeat=1, include_config_obs=false))]
+    fn new(n_envs: usize, randomize_spawns: bool, seed: u64, action_repeat: u32, include_config_obs: bool) -> Self {
         let mut rng = Pcg64::seed_from_u64(seed);
         let default_config = SimConfig::default();
         let envs: Vec<SelfPlayEnvInstance> = (0..n_envs)
@@ -1223,6 +1253,7 @@ impl SelfPlayBatchEnv {
             scripted_fraction: 0.0,
             scripted_pool: Vec::new(),
             config_ranges: SimConfigRanges::default(),
+            include_config_obs,
         }
     }
 
@@ -1258,7 +1289,7 @@ impl SelfPlayBatchEnv {
         if let Some(v) = facing { self.weights.facing = v; }
     }
 
-    /// Reset all environments. Returns (obs_p0, obs_p1) as numpy arrays (n_envs, OBS_SIZE).
+    /// Reset all environments. Returns (obs_p0, obs_p1) as numpy arrays (n_envs, effective_obs_size).
     fn reset<'py>(
         &mut self,
         py: Python<'py>,
@@ -1287,14 +1318,22 @@ impl SelfPlayBatchEnv {
             .collect();
 
         // Write directly into numpy buffers
-        let obs_p0_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, OBS_SIZE], false);
-        let obs_p1_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, OBS_SIZE], false);
+        let effective_obs = if self.include_config_obs { OBS_SIZE + CONFIG_OBS_SIZE } else { OBS_SIZE };
+        let obs_p0_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, effective_obs], false);
+        let obs_p1_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, effective_obs], false);
         unsafe {
             let buf_p0 = obs_p0_py.as_slice_mut().unwrap();
             let buf_p1 = obs_p1_py.as_slice_mut().unwrap();
             for (i, (o0, o1)) in obs_pairs.iter().enumerate() {
-                buf_p0[i * OBS_SIZE..(i + 1) * OBS_SIZE].copy_from_slice(o0);
-                buf_p1[i * OBS_SIZE..(i + 1) * OBS_SIZE].copy_from_slice(o1);
+                buf_p0[i * effective_obs..i * effective_obs + OBS_SIZE].copy_from_slice(o0);
+                buf_p1[i * effective_obs..i * effective_obs + OBS_SIZE].copy_from_slice(o1);
+                if self.include_config_obs {
+                    let config_obs = self.envs[i].config.to_obs_array();
+                    buf_p0[i * effective_obs + OBS_SIZE..i * effective_obs + effective_obs]
+                        .copy_from_slice(&config_obs);
+                    buf_p1[i * effective_obs + OBS_SIZE..i * effective_obs + effective_obs]
+                        .copy_from_slice(&config_obs);
+                }
             }
         }
         (obs_p0_py, obs_p1_py)
@@ -1389,8 +1428,9 @@ impl SelfPlayBatchEnv {
             .collect();
 
         // Allocate output numpy arrays
-        let obs_p0_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, OBS_SIZE], false);
-        let obs_p1_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, OBS_SIZE], false);
+        let effective_obs = if self.include_config_obs { OBS_SIZE + CONFIG_OBS_SIZE } else { OBS_SIZE };
+        let obs_p0_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, effective_obs], false);
+        let obs_p1_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, effective_obs], false);
         let rew_p0_py = PyArray1::<f32>::zeros_bound(py, self.n_envs, false);
         let rew_p1_py = PyArray1::<f32>::zeros_bound(py, self.n_envs, false);
         let done_py = PyArray1::<bool>::zeros_bound(py, self.n_envs, false);
@@ -1411,8 +1451,15 @@ impl SelfPlayBatchEnv {
                 } else {
                     (&result.obs_p0, &result.obs_p1)
                 };
-                buf_obs_p0[i * OBS_SIZE..(i + 1) * OBS_SIZE].copy_from_slice(o0);
-                buf_obs_p1[i * OBS_SIZE..(i + 1) * OBS_SIZE].copy_from_slice(o1);
+                buf_obs_p0[i * effective_obs..i * effective_obs + OBS_SIZE].copy_from_slice(o0);
+                buf_obs_p1[i * effective_obs..i * effective_obs + OBS_SIZE].copy_from_slice(o1);
+                if self.include_config_obs {
+                    let config_obs = self.envs[i].config.to_obs_array();
+                    buf_obs_p0[i * effective_obs + OBS_SIZE..i * effective_obs + effective_obs]
+                        .copy_from_slice(&config_obs);
+                    buf_obs_p1[i * effective_obs + OBS_SIZE..i * effective_obs + effective_obs]
+                        .copy_from_slice(&config_obs);
+                }
                 buf_rew_p0[i] = result.reward_p0;
                 buf_rew_p1[i] = result.reward_p1;
                 buf_done[i] = result.done;
@@ -1441,7 +1488,7 @@ impl SelfPlayBatchEnv {
 
     #[getter]
     fn obs_size(&self) -> usize {
-        OBS_SIZE
+        if self.include_config_obs { OBS_SIZE + CONFIG_OBS_SIZE } else { OBS_SIZE }
     }
 
     #[getter]
@@ -1458,6 +1505,12 @@ impl SelfPlayBatchEnv {
     #[setter]
     fn set_action_repeat(&mut self, value: u32) {
         self.action_repeat = value.max(1);
+    }
+
+    /// Whether config observations are included in the observation vector.
+    #[getter]
+    fn include_config_obs(&self) -> bool {
+        self.include_config_obs
     }
 
     /// Set the fraction of envs that use scripted opponents (0.0 = all neural, 1.0 = all scripted).
@@ -1521,6 +1574,7 @@ fn dogfight_pyenv(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<BatchEnv>()?;
     m.add_class::<SelfPlayBatchEnv>()?;
     m.add("OBS_SIZE", OBS_SIZE)?;
+    m.add("CONFIG_OBS_SIZE", CONFIG_OBS_SIZE)?;
     m.add("ACTION_SIZE", ACTION_SIZE)?;
     m.add("MAX_TICKS", MAX_TICKS)?;
     Ok(())

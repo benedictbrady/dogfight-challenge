@@ -489,6 +489,112 @@ def train_unified_modal(config: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Unified DR (config-aware domain-randomized) training function
+# ---------------------------------------------------------------------------
+
+@app.function(
+    image=image,
+    gpu="H100",
+    cpu=48,
+    memory=65536,
+    timeout=43200,  # 12 hours
+    volumes={"/results": vol},
+)
+def train_unified_dr_modal(config: dict) -> dict:
+    """Run a config-aware DR unified training pipeline on Modal.
+
+    Uses H100 GPU for fastest inference + PPO (3-5x over A10G due to memory
+    bandwidth), paired with 48 CPU cores. H100 hosts typically have newer CPUs
+    (EPYC Genoa / Sapphire Rapids) which also helps sim performance.
+    """
+    import subprocess
+    import time
+    import json
+
+    ts = int(time.time())
+    tag = config.get("_tag", "unified_dr")
+    exp_name = _make_name(tag, ts)
+    exp_dir = f"/results/unified_dr/{exp_name}"
+    ckpt_dir = f"{exp_dir}/checkpoints"
+    log_dir = f"{exp_dir}/runs"
+    pool_dir = f"{exp_dir}/pool"
+    os.makedirs(ckpt_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(pool_dir, exist_ok=True)
+
+    # Save config
+    with open(f"{exp_dir}/config.json", "w") as f:
+        json.dump(config, f, indent=2)
+
+    # Write config to temp file for train_unified_dr.py --config
+    config_path = f"{exp_dir}/run_config.json"
+    run_config = {k: v for k, v in config.items() if not k.startswith("_")}
+    with open(config_path, "w") as f:
+        json.dump(run_config, f, indent=2)
+
+    env = os.environ.copy()
+    env["SLACK_WEBHOOK_URL"] = SLACK_WEBHOOK
+
+    cmd = [
+        "python", "-u", "/app/training/train_unified_dr.py",
+        "--config", config_path,
+        "--checkpoint-dir", ckpt_dir,
+        "--log-dir", log_dir,
+        "--pool-dir", pool_dir,
+        "--run-name", exp_name,
+    ]
+
+    # Resume if specified
+    resume = config.get("_resume", "")
+    if resume:
+        cmd.extend(["--resume", resume])
+
+    model_cfg = config.get("model", {})
+    print(f"=== {exp_name} (unified DR) ===")
+    print(f"Model: {model_cfg.get('hidden', 384)}h / {model_cfg.get('n_blocks', 3)}b, obs_dim=59")
+
+    t0 = time.time()
+    proc = subprocess.Popen(
+        cmd, cwd="/app", stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, bufsize=1, env=env,
+    )
+    for line in proc.stdout:
+        print(line, end="")
+
+    proc.wait()
+    elapsed = time.time() - t0
+
+    # Capture eval output (config-aware eval)
+    eval_output = ""
+    final_ckpt = f"{ckpt_dir}/final.pt"
+    if os.path.exists(final_ckpt):
+        eval_proc = subprocess.run(
+            [
+                "python", "/app/training/eval.py", final_ckpt,
+                "--matches", "50",
+                "--hidden", str(model_cfg.get("hidden", 384)),
+                "--n-blocks", str(model_cfg.get("n_blocks", 3)),
+                "--config-obs",
+            ],
+            cwd="/app", capture_output=True, text=True, env=env,
+        )
+        eval_output = eval_proc.stdout
+        print(eval_output)
+        with open(f"{exp_dir}/eval.txt", "w") as f:
+            f.write(eval_output)
+
+    vol.commit()
+
+    return {
+        "experiment": exp_name,
+        "elapsed_seconds": round(elapsed, 1),
+        "exit_code": proc.returncode,
+        "config": config,
+        "eval": eval_output,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Result download helpers
 # ---------------------------------------------------------------------------
 
@@ -514,6 +620,12 @@ def list_results() -> list[str]:
         for d in sorted(os.listdir(uni_dir)):
             if os.path.isdir(f"{uni_dir}/{d}"):
                 results.append(f"unified/{d}")
+    # Also list unified DR experiments
+    dr_dir = "/results/unified_dr"
+    if os.path.exists(dr_dir):
+        for d in sorted(os.listdir(dr_dir)):
+            if os.path.isdir(f"{dr_dir}/{d}"):
+                results.append(f"unified_dr/{d}")
     return results
 
 
@@ -566,6 +678,7 @@ def main(
     production: bool = False,
     selfplay: bool = False,
     unified: bool = False,
+    unified_dr: bool = False,
     config: str = "",
     bootstrap: str = "",
     download: str = "",
@@ -616,7 +729,10 @@ def main(
         if bootstrap:
             cfg["_bootstrap"] = bootstrap
 
-        if script == "train_unified":
+        if script == "train_unified_dr":
+            print(f"Launching unified DR pipeline from config: {config}")
+            result = train_unified_dr_modal.remote(cfg)
+        elif script == "train_unified":
             print(f"Launching unified pipeline from config: {config}")
             result = train_unified_modal.remote(cfg)
         elif script == "train_selfplay":
@@ -634,6 +750,39 @@ def main(
                 tag=tag,
             )
         print(f"\nDone: {result['experiment']} in {result['elapsed_seconds']}s")
+        if result.get("eval"):
+            print(result["eval"])
+        return
+
+    # ----- Unified DR (config-aware domain randomization) -----
+    if unified_dr:
+        import json as _json2
+        # Load the production config
+        config_path = "experiments/configs/unified_dr_v1.json"
+        with open(config_path) as f:
+            dr_config = _json2.load(f)
+
+        if smoke_test:
+            dr_config["training"]["n_envs"] = 4
+            dr_config["training"]["n_steps"] = 64
+            dr_config["curriculum"]["updates"] = 3
+            dr_config["transition"]["updates"] = 2
+            dr_config["selfplay"]["updates"] = 3
+            dr_config["selfplay"]["scripted_eval_every"] = 2
+            dr_config["selfplay"]["pool_snapshot_every"] = 2
+            dr_config["selfplay"]["regime_eval_every"] = 0
+            dr_config["_tag"] = tag or "unified_dr-smoke"
+            print("Running unified DR smoke test...")
+        else:
+            dr_config["_tag"] = tag or "unified_dr"
+            total = (dr_config["curriculum"]["updates"]
+                     + dr_config["transition"]["updates"]
+                     + dr_config["selfplay"]["updates"])
+            print(f"Launching unified DR pipeline ({total} total updates, A10G GPU)...")
+
+        result = train_unified_dr_modal.remote(dr_config)
+        status_str = "PASS" if result["exit_code"] == 0 else "FAIL"
+        print(f"\n{'Smoke test' if smoke_test else 'Unified DR'}: {status_str} — {result['experiment']} in {result['elapsed_seconds']}s")
         if result.get("eval"):
             print(result["eval"])
         return

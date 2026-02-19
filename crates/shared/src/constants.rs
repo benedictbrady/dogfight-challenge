@@ -52,6 +52,25 @@ pub const OBS_SIZE: usize = 46;
 pub const ACTION_SIZE: usize = 3;
 pub const MAX_BULLET_SLOTS: usize = 8;
 
+// Config observation (opt-in, appended to base obs at PyO3 boundary)
+pub const CONFIG_OBS_SIZE: usize = 13;
+
+// Fixed normalization denominators for config observation.
+// Each SimConfig parameter is divided by its denominator to produce [0, ~1] values.
+pub const CONFIG_NORM_GRAVITY: f32 = 200.0;
+pub const CONFIG_NORM_DRAG_COEFF: f32 = 2.0;
+pub const CONFIG_NORM_TURN_BLEED_COEFF: f32 = 1.0;
+pub const CONFIG_NORM_MAX_SPEED: f32 = 500.0;
+pub const CONFIG_NORM_MIN_SPEED: f32 = 100.0;
+pub const CONFIG_NORM_MAX_THRUST: f32 = 400.0;
+pub const CONFIG_NORM_BULLET_SPEED: f32 = 800.0;
+pub const CONFIG_NORM_GUN_COOLDOWN_TICKS: f32 = 240.0;
+pub const CONFIG_NORM_BULLET_LIFETIME_TICKS: f32 = 180.0;
+pub const CONFIG_NORM_MAX_HP: f32 = 10.0;
+pub const CONFIG_NORM_MAX_TURN_RATE: f32 = 8.0;
+pub const CONFIG_NORM_MIN_TURN_RATE: f32 = 4.0;
+pub const CONFIG_NORM_REAR_ASPECT_CONE: f32 = std::f32::consts::PI;
+
 // Scoring
 pub const WIN_ELIMINATION_POINTS: u32 = 3;
 pub const WIN_HP_POINTS: u32 = 2;
@@ -61,8 +80,8 @@ pub const DRAW_POINTS: u32 = 1;
 pub const FRAME_INTERVAL: u32 = 4; // stream every 4th tick = 30fps
 
 // ONNX validation
-pub const MAX_MODEL_SIZE_BYTES: usize = 10 * 1024 * 1024; // 10 MB
-pub const MAX_PARAMETERS: usize = 2_000_000;
+pub const MAX_MODEL_SIZE_BYTES: usize = 50 * 1024 * 1024; // 50 MB
+pub const MAX_PARAMETERS: usize = 10_000_000;
 pub const MAX_INFERENCE_TIME_MS: u64 = 1000;
 pub const CALIBRATION_WARMUP: usize = 10;
 pub const CALIBRATION_RUNS: usize = 100;

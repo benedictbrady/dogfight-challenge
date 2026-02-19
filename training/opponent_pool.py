@@ -57,11 +57,13 @@ class OpponentPool:
         n_blocks: int = 3,
         max_size: int = 30,
         cache_size: int = 5,
+        obs_dim: int = 46,
     ):
         self.pool_dir = Path(pool_dir)
         self.device = device
         self.hidden = hidden
         self.n_blocks = n_blocks
+        self.obs_dim = obs_dim
         self.max_size = max_size
         self._cache: OrderedDict[str, object] = OrderedDict()
         self._cache_size = cache_size
@@ -162,7 +164,7 @@ class OpponentPool:
         # Import here to avoid circular imports at module level
         from model import ActorCritic
 
-        model = ActorCritic(hidden=self.hidden, n_blocks=self.n_blocks).to(self.device)
+        model = ActorCritic(obs_dim=self.obs_dim, hidden=self.hidden, n_blocks=self.n_blocks).to(self.device)
         ckpt = torch.load(
             self.pool_dir / entry.path,
             map_location=self.device,
@@ -236,6 +238,7 @@ class OpponentPool:
         data = {
             "hidden": self.hidden,
             "n_blocks": self.n_blocks,
+            "obs_dim": self.obs_dim,
             "max_size": self.max_size,
             "entries": [asdict(e) for e in self.entries],
         }
@@ -249,6 +252,7 @@ class OpponentPool:
 
         self.hidden = data.get("hidden", self.hidden)
         self.n_blocks = data.get("n_blocks", self.n_blocks)
+        self.obs_dim = data.get("obs_dim", self.obs_dim)
         self.max_size = data.get("max_size", self.max_size)
         self.entries = [PoolEntry(**e) for e in data.get("entries", [])]
 

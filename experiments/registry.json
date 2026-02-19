@@ -1,5 +1,5 @@
 {
-  "next_id": 2,
+  "next_id": 3,
   "experiments": [
     {
       "id": 1,
@@ -21,6 +21,25 @@
         "final_win_rate": 0.19,
         "final_return": -0.34
       }
+    },
+    {
+      "id": 2,
+      "date": "2026-02-19",
+      "tag": "unified-dr-v1",
+      "config_file": "experiments/configs/unified_dr_v1.json",
+      "config": {
+        "script": "train_unified_dr",
+        "model": "768h/4b, obs_dim=59 (46 base + 13 config)",
+        "n_envs": 256,
+        "n_steps": 2048,
+        "action_repeat": 10,
+        "phases": "curriculum(600) + transition(200) + selfplay(1500) = 2300 total",
+        "domain_randomization": "progressive (narrow→full at update 200)",
+        "gpu": "A10G",
+        "actor_params": "~4.78M (48% of 10M budget)"
+      },
+      "status": "pending",
+      "notes": "First config-aware DR training run. 768h/4b model (5.2x larger than old 384h/3b). Sees physics config in observation. 8 named eval regimes. A10G GPU for ~2.5h estimated runtime."
     }
   ]
 }

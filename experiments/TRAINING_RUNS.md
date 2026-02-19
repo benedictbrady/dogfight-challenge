@@ -25,6 +25,7 @@
 | 16 | vivid-icarus-selfplay | selfplay v1 | 2000 | DIED ~1200 | Longest v1 run; ELO bug (all=1000) |
 | 17 | loud-ghost-selfplay_v2 | selfplay v2 | 2000 | DIED ~381 | ELO working! Peak 1529 |
 | 18 | tight-saber-selfplay_v2 | selfplay v2 | 2000 | UNKNOWN | Could not download (file conflict) |
+| 19 | TBD-unified_dr | unified DR v1 | 2300 | PENDING | First config-aware DR run, 768h/4b, A10G |
 
 ---
 
@@ -162,9 +163,29 @@ v2 runs use `selfplay_v2.json` config:
 5. **Many early self-play runs died quickly** — possibly crashes in the self-play infrastructure before it stabilized
 6. **Curriculum training is solved** — mean-knight-production achieves 100% vs all scripted opponents
 
+---
+
+## Phase 5: Config-Aware Domain Randomization (unified DR)
+
+### #19 — TBD-unified_dr (Experiment #2, PENDING)
+- **Date**: 2026-02-19
+- **Type**: Unified DR (curriculum + transition + self-play with domain randomization)
+- **Config**: `experiments/configs/unified_dr_v1.json`
+- **Model**: 768h/4b, obs_dim=59 (46 base + 13 config params) — **4.78M actor-only params**
+- **Training**: 256 envs, 2048 steps, action_repeat=10, A10G GPU
+- **Phases**: curriculum(600) + transition(200) + selfplay(1500) = **2300 updates**
+- **Key new features**:
+  - Config observation: model sees active physics parameters (gravity, bullet_speed, etc.)
+  - Progressive DR: narrow ranges first 200 updates, then full
+  - 8 named eval regimes (default, high_gravity, low_gravity, glass_cannon, tank_fight, knife_fight, energy_fighter, sniper)
+  - Constraint enforcement: min_speed+50 <= max_speed, min_turn_rate < max_turn_rate
+- **Previous models fully backward compatible**: all old 46-dim models still work (include_config_obs defaults to false)
+- **Estimated runtime**: ~2.5-3h on A10G
+- **Status**: PENDING launch
+
 ## Next Steps
 
-- [ ] Run selfplay v2 with `--detach` and longer timeout to completion
-- [ ] Consider unified pipeline (curriculum -> self-play in one run)
-- [ ] Evaluate best self-play checkpoints against scripted opponents
+- [ ] Launch unified DR v1 run
+- [ ] If 768h/4b shows improvement, ablation with 768h/6b
+- [ ] Consider feature-grouped first layer (semantic input embedding for bullet slots)
 - [ ] Export best model to ONNX for submission
