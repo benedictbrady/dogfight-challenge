@@ -14,13 +14,19 @@ use super::tactics::*;
 /// has less effect (short bullet travel time). Brawler doesn't trigger
 /// ace's defensive breaks as aggressively.
 pub struct AcePolicy {
+    config: SimConfig,
     evade_timer: u32,
     evade_dir: f32,
 }
 
 impl AcePolicy {
     pub fn new() -> Self {
+        Self::with_config(SimConfig::default())
+    }
+
+    pub fn with_config(config: SimConfig) -> Self {
         Self {
+            config,
             evade_timer: 0,
             evade_dir: 1.0,
         }
@@ -39,7 +45,7 @@ impl Policy for AcePolicy {
     }
 
     fn act(&mut self, obs: &Observation) -> Action {
-        let ts = extract_tactical_state(obs);
+        let ts = extract_tactical_state_with_config(obs, &self.config);
 
         // Emergency altitude override
         if let Some(yaw_input) = altitude_safety(ts.altitude, ts.my_yaw) {
@@ -90,18 +96,13 @@ impl AcePolicy {
             evade_yaw = -1.0;
         }
 
-        let can_shoot = ts.angle_off_nose.abs() < 0.30
-            && ts.distance < 380.0
-            && ts.gun_cooldown < 0.01
-            && !ts.would_be_rear_aspect_shot;
-
         let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, evade_yaw);
         let throttle = 0.7f32.max(min_throttle);
 
         Action {
             yaw_input,
             throttle,
-            shoot: can_shoot,
+            shoot: can_shoot(ts, 0.30, 380.0),
         }
     }
 
@@ -114,14 +115,7 @@ impl AcePolicy {
         let target_yaw = perp_yaw + 0.15;
         let yaw_input = yaw_toward(target_yaw, ts.my_yaw, 3.5);
 
-        // Slow down for tighter defensive turns
         let throttle: f32 = if ts.my_speed > 100.0 { 0.3 } else { 0.5 };
-
-        // Wide shoot angle during defense — take any shot opportunity (skip rear-aspect)
-        let can_shoot = ts.angle_off_nose.abs() < 0.35
-            && ts.distance < 350.0
-            && ts.gun_cooldown < 0.01
-            && !ts.would_be_rear_aspect_shot;
 
         let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
         let throttle = throttle.max(min_throttle);
@@ -129,17 +123,12 @@ impl AcePolicy {
         Action {
             yaw_input,
             throttle,
-            shoot: can_shoot,
+            shoot: can_shoot(ts, 0.35, 350.0),
         }
     }
 
-    /// Standard pursuit: lead aim (crossing when behind) with altitude bias
     fn act_pursue(&self, ts: &TacticalState) -> Action {
-        let desired_yaw = if ts.am_behind_opponent {
-            crossing_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
-        } else {
-            lead_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
-        };
+        let desired_yaw = smart_aim(ts, &self.config, 1.0);
         let mut yaw_diff = angle_diff(desired_yaw, ts.my_yaw);
 
         // Altitude management: prefer 320-460m band (higher than other policies)
@@ -173,19 +162,13 @@ impl AcePolicy {
             0.7
         };
 
-        // Tight shooting — fewer but more accurate shots (skip rear-aspect)
-        let shoot = ts.angle_off_nose.abs() < 0.20
-            && ts.distance < 380.0
-            && ts.gun_cooldown < 0.01
-            && !ts.would_be_rear_aspect_shot;
-
         let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
         let throttle = throttle.max(min_throttle);
 
         Action {
             yaw_input,
             throttle,
-            shoot,
+            shoot: can_shoot(ts, 0.20, 380.0),
         }
     }
 }

@@ -14,6 +14,16 @@ interface FighterProps {
 }
 
 const BG: [number, number, number] = [0xf8 / 255, 0xf8 / 255, 0xf8 / 255];
+const FLASH_DECAY_RATE = 5;
+
+// Smoke cloud circles for dead fighter display
+const SMOKE_CLOUDS = [
+  { position: [0, 0, 0] as const, radius: 8, segments: 20, color: "#9ca3af", opacity: 0.85 },
+  { position: [-5, 0, 0.1] as const, radius: 5, segments: 16, color: "#b0b5bc", opacity: 0.7 },
+  { position: [5, 0, 0.1] as const, radius: 5, segments: 16, color: "#b0b5bc", opacity: 0.7 },
+  { position: [0, 5, 0.1] as const, radius: 5, segments: 16, color: "#b0b5bc", opacity: 0.7 },
+  { position: [0, -5, 0.1] as const, radius: 5, segments: 16, color: "#b0b5bc", opacity: 0.7 },
+];
 
 // Debris fragment positions for explosion (pre-computed, scattered outward)
 const DEBRIS = [
@@ -42,7 +52,7 @@ export default function Fighter({ state, color, trail }: FighterProps) {
     prevHpRef.current = state.hp;
 
     if (flashRef.current > 0) {
-      flashRef.current = Math.max(0, flashRef.current - delta * 5); // ~0.2s flash
+      flashRef.current = Math.max(0, flashRef.current - delta * FLASH_DECAY_RATE);
       if (matRef.current) {
         matRef.current.color.copy(teamColor).lerp(flashColor, flashRef.current);
       }
@@ -91,26 +101,12 @@ export default function Fighter({ state, color, trail }: FighterProps) {
       ) : (
         /* Dead: symmetric smoke cloud */
         <>
-          <mesh position={[0, 0, 0]}>
-            <circleGeometry args={[8, 20]} />
-            <meshBasicMaterial color="#9ca3af" transparent opacity={0.85} />
-          </mesh>
-          <mesh position={[-5, 0, 0.1]}>
-            <circleGeometry args={[5, 16]} />
-            <meshBasicMaterial color="#b0b5bc" transparent opacity={0.7} />
-          </mesh>
-          <mesh position={[5, 0, 0.1]}>
-            <circleGeometry args={[5, 16]} />
-            <meshBasicMaterial color="#b0b5bc" transparent opacity={0.7} />
-          </mesh>
-          <mesh position={[0, 5, 0.1]}>
-            <circleGeometry args={[5, 16]} />
-            <meshBasicMaterial color="#b0b5bc" transparent opacity={0.7} />
-          </mesh>
-          <mesh position={[0, -5, 0.1]}>
-            <circleGeometry args={[5, 16]} />
-            <meshBasicMaterial color="#b0b5bc" transparent opacity={0.7} />
-          </mesh>
+          {SMOKE_CLOUDS.map((cloud, i) => (
+            <mesh key={i} position={cloud.position}>
+              <circleGeometry args={[cloud.radius, cloud.segments]} />
+              <meshBasicMaterial color={cloud.color} transparent opacity={cloud.opacity} />
+            </mesh>
+          ))}
         </>
       )}
 

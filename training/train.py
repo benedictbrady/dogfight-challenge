@@ -1,7 +1,6 @@
 """PPO training loop for dogfight agent."""
 
 import argparse
-import random
 import time
 from pathlib import Path
 
@@ -12,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from model import ActorCritic, OBS_SIZE, ACTION_SIZE
 from naming import make_run_name
+from utils import save_checkpoint
 
 # Try to import the Rust env; helpful error if not built yet.
 try:
@@ -157,8 +157,6 @@ def train(args):
 
             global_step += args.n_envs
 
-        rollout_time = time.time() - t_rollout
-
         with torch.no_grad():
             next_val = model.get_value(torch.tensor(next_obs, device=device)).cpu().numpy()
 
@@ -284,20 +282,6 @@ def train(args):
     save_checkpoint(model, optimizer, global_step, total_updates, ckpt_dir, "final")
     writer.close()
     print(f"\nTraining complete. Final checkpoint saved to {ckpt_dir}/final.pt")
-
-
-def save_checkpoint(model, optimizer, global_step, total_updates, ckpt_dir, name):
-    path = Path(ckpt_dir) / f"{name}.pt"
-    torch.save(
-        {
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "global_step": global_step,
-            "total_updates": total_updates,
-        },
-        path,
-    )
-    print(f"  [checkpoint] {path}")
 
 
 if __name__ == "__main__":

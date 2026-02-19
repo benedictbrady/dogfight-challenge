@@ -5,6 +5,9 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { HitEvent } from "../hooks/useMatch";
 
+const HIT_RING_SCALE_RATE = 50;
+const HIT_EFFECT_DURATION = 0.3;
+
 interface HitEffectProps {
   hit: HitEvent;
 }
@@ -18,10 +21,10 @@ export default function HitEffect({ hit }: HitEffectProps) {
     const t = timeRef.current;
 
     if (ringRef.current) {
-      const s = 1 + t * 50;
+      const s = 1 + t * HIT_RING_SCALE_RATE;
       ringRef.current.scale.set(s, s, 1);
       const mat = ringRef.current.material as THREE.MeshBasicMaterial;
-      mat.opacity = Math.max(0, 1 - t / 0.3);
+      mat.opacity = Math.max(0, 1 - t / HIT_EFFECT_DURATION);
     }
   });
 

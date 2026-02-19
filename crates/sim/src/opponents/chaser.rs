@@ -5,6 +5,7 @@ use super::tactics::*;
 /// Upgraded pressure fighter: relentless pursuit with yo-yo maneuvers and bullet evasion.
 /// Beats Brawler (constant pressure prevents slow turn-fights), loses to Ace (can't catch altitude).
 pub struct ChaserPolicy {
+    config: SimConfig,
     evade_timer: u32,
     evade_dir: f32,
     yo_yo_timer: u32,
@@ -14,7 +15,12 @@ pub struct ChaserPolicy {
 
 impl ChaserPolicy {
     pub fn new() -> Self {
+        Self::with_config(SimConfig::default())
+    }
+
+    pub fn with_config(config: SimConfig) -> Self {
         Self {
+            config,
             evade_timer: 0,
             evade_dir: 1.0,
             yo_yo_timer: 0,
@@ -35,7 +41,7 @@ impl Policy for ChaserPolicy {
     }
 
     fn act(&mut self, obs: &Observation) -> Action {
-        let ts = extract_tactical_state(obs);
+        let ts = extract_tactical_state_with_config(obs, &self.config);
 
         // Emergency altitude override
         if let Some(yaw_input) = altitude_safety(ts.altitude, ts.my_yaw) {
@@ -61,16 +67,10 @@ impl Policy for ChaserPolicy {
         }
 
         if self.evade_timer > 0 {
-            // During evasion, still take opportunistic shots (skip rear-aspect)
-            let can_shoot = ts.angle_off_nose.abs() < 0.3
-                && ts.distance < 320.0
-                && ts.gun_cooldown < 0.01
-                && !ts.would_be_rear_aspect_shot;
-
             return Action {
                 yaw_input: self.evade_dir,
                 throttle: 0.8,
-                shoot: can_shoot,
+                shoot: can_shoot(&ts, 0.3, 320.0),
             };
         }
 
@@ -89,12 +89,7 @@ impl Policy for ChaserPolicy {
             }
         }
 
-        // Use crossing aim when behind opponent (rear-aspect armor makes tailing useless)
-        let desired_yaw = if ts.am_behind_opponent {
-            crossing_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
-        } else {
-            lead_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
-        };
+        let desired_yaw = smart_aim(&ts, &self.config, 1.0);
         let mut yaw_diff = angle_diff(desired_yaw, ts.my_yaw);
 
         // Apply yo-yo bias
@@ -118,11 +113,7 @@ impl Policy for ChaserPolicy {
             1.0
         };
 
-        // Shooting: 0.22 rad angle, 320m range, skip rear-aspect shots
-        let well_aimed = ts.angle_off_nose.abs() < 0.22;
-        let in_range = ts.distance < 320.0;
-        let gun_ready = ts.gun_cooldown < 0.01;
-        let shoot = well_aimed && in_range && gun_ready && !ts.would_be_rear_aspect_shot;
+        let shoot = can_shoot(&ts, 0.22, 320.0);
 
         let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
         let throttle = throttle.max(min_throttle);

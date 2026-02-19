@@ -28,30 +28,12 @@ from model import ActorCritic, OBS_SIZE, ACTION_SIZE
 from naming import make_run_name
 from opponent_pool import OpponentPool
 from slack import slack_notify
+from utils import save_checkpoint, scripted_eval, compute_gae, EVAL_OPPONENTS
 
 try:
     from dogfight_pyenv import SelfPlayBatchEnv, DogfightEnv
 except ImportError:
     raise ImportError("dogfight_pyenv not found. Build it first: make pyenv")
-
-
-def scripted_eval(model, opponent: str, n_matches: int, action_repeat: int, device: torch.device) -> float:
-    """Quick eval against a scripted opponent. Returns win rate."""
-    wins = 0
-    for i in range(n_matches):
-        env = DogfightEnv(opponent, seed=i * 7 + 1, randomize_spawns=True)
-        obs = env.reset()
-        done = False
-        while not done:
-            obs_t = torch.tensor([obs], dtype=torch.float32, device=device)
-            action = model.get_deterministic_action(obs_t)[0]
-            for _ in range(action_repeat):
-                obs, reward, done, info = env.step(action.tolist())
-                if done:
-                    break
-        if info.get("outcome") == "Player0Win":
-            wins += 1
-    return wins / n_matches if n_matches > 0 else 0.0
 
 
 def train_selfplay(args):
@@ -219,9 +201,6 @@ def train_selfplay(args):
         t_rollout = time.time()
         t_infer_total = 0.0
         t_env_total = 0.0
-        rollout_wins = 0
-        rollout_losses = 0
-        rollout_draws = 0
 
         for step in range(args.n_steps):
             # Copy obs/done to GPU buffers via pinned staging
@@ -290,7 +269,6 @@ def train_selfplay(args):
                     ep_lengths.append(ep_len_running[i])
                     outcome = infos[i].get("outcome", "Draw")
                     won = outcome == "Player0Win"
-                    lost = outcome == "Player1Win"
                     drawn = outcome == "Draw"
                     ep_wins.append(1.0 if won else 0.0)
 
@@ -300,19 +278,10 @@ def train_selfplay(args):
                     )
                     pool.update_elo(opp_entry, learner_elo, won=won, drawn=drawn)
 
-                    if won:
-                        rollout_wins += 1
-                    elif lost:
-                        rollout_losses += 1
-                    else:
-                        rollout_draws += 1
-
                     ep_return_running[i] = 0.0
                     ep_len_running[i] = 0
 
             global_step += args.n_envs
-
-        rollout_time = time.time() - t_rollout
 
         # GAE — computed entirely on GPU (no CPU round-trip)
         with torch.inference_mode():
@@ -325,21 +294,10 @@ def train_selfplay(args):
 
         t_ppo = time.time()
 
-        with torch.no_grad():
-            advantages = torch.zeros_like(rew_buf)
-            last_gae = torch.zeros(args.n_envs, device=device)
-            for t in reversed(range(args.n_steps)):
-                if t == args.n_steps - 1:
-                    next_nonterminal = 1.0 - next_done_t
-                    next_values = next_val
-                else:
-                    next_nonterminal = 1.0 - done_buf[t + 1]
-                    next_values = val_buf[t + 1]
-                delta = rew_buf[t] + args.gamma * next_values * next_nonterminal - val_buf[t]
-                advantages[t] = last_gae = (
-                    delta + args.gamma * args.gae_lambda * next_nonterminal * last_gae
-                )
-            returns = advantages + val_buf
+        advantages, returns = compute_gae(
+            rew_buf, val_buf, done_buf, next_done_t, next_val,
+            args.n_steps, args.n_envs, args.gamma, args.gae_lambda, device,
+        )
 
         # PPO update — buffers already on GPU, just reshape (zero-copy views)
         b_obs = obs_buf.reshape(-1, OBS_SIZE)
@@ -480,7 +438,6 @@ def train_selfplay(args):
 
             # Alert on regression: only after we've crossed the threshold once,
             # and only if WR dropped significantly from peak or from last eval
-            drop_from_best = best_scripted_wr - brawler_wr
             drop_from_last = last_scripted_wr - brawler_wr
             if best_scripted_wr >= args.regression_threshold:
                 if brawler_wr < args.regression_threshold or drop_from_last >= 0.2:
@@ -503,7 +460,7 @@ def train_selfplay(args):
     model.eval()
     print("\n=== Final Evaluation ===")
     final_results = {}
-    for opp in ["do_nothing", "dogfighter", "chaser", "ace", "brawler"]:
+    for opp in EVAL_OPPONENTS:
         wr = scripted_eval(model, opp, 50, args.action_repeat, device)
         final_results[opp] = wr
         print(f"  vs {opp}: {wr:.0%}")
@@ -518,22 +475,6 @@ def train_selfplay(args):
 
     print(f"\nTraining complete. ELO: {learner_elo:.0f}, Pool: {pool.size}")
     print(f"Checkpoints: {ckpt_dir}, Pool: {pool_dir}")
-
-
-def save_checkpoint(model, optimizer, global_step, total_updates, ckpt_dir, name):
-    # Unwrap torch.compile wrapper if present
-    raw_model = getattr(model, "_orig_mod", model)
-    path = Path(ckpt_dir) / f"{name}.pt"
-    torch.save(
-        {
-            "model": raw_model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "global_step": global_step,
-            "total_updates": total_updates,
-        },
-        path,
-    )
-    print(f"  [checkpoint] {path}")
 
 
 def load_config(config_path: str) -> dict:

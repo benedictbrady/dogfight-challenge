@@ -31,6 +31,7 @@ from model import ActorCritic, OBS_SIZE, ACTION_SIZE
 from naming import make_run_name
 from opponent_pool import OpponentPool
 from slack import slack_notify
+from utils import save_checkpoint, scripted_eval, compute_gae, EVAL_OPPONENTS
 
 try:
     from dogfight_pyenv import SelfPlayBatchEnv, DogfightEnv
@@ -41,41 +42,6 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def scripted_eval(model, opponent: str, n_matches: int, action_repeat: int,
-                  device: torch.device) -> float:
-    """Quick eval against a scripted opponent. Returns win rate."""
-    wins = 0
-    for i in range(n_matches):
-        env = DogfightEnv(opponent, seed=i * 7 + 1, randomize_spawns=True)
-        obs = env.reset()
-        done = False
-        while not done:
-            obs_t = torch.tensor([obs], dtype=torch.float32, device=device)
-            action = model.get_deterministic_action(obs_t)[0]
-            for _ in range(action_repeat):
-                obs, reward, done, info = env.step(action.tolist())
-                if done:
-                    break
-        if info.get("outcome") == "Player0Win":
-            wins += 1
-    return wins / n_matches if n_matches > 0 else 0.0
-
-
-def save_checkpoint(model, optimizer, global_step, total_updates, ckpt_dir, name):
-    raw_model = getattr(model, "_orig_mod", model)
-    path = Path(ckpt_dir) / f"{name}.pt"
-    torch.save(
-        {
-            "model": raw_model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "global_step": global_step,
-            "total_updates": total_updates,
-        },
-        path,
-    )
-    print(f"  [checkpoint] {path}")
-
 
 def get_curriculum_pool(update: int, schedule: dict[int, list[str]]) -> list[str]:
     """Return opponent pool based on update count and curriculum schedule."""
@@ -97,21 +63,10 @@ def ppo_update(model, optimizer, obs_buf, act_buf, logp_buf, rew_buf, done_buf,
         next_val = model.get_value(next_obs_t)
 
     # GAE on GPU
-    with torch.no_grad():
-        advantages = torch.zeros_like(rew_buf)
-        last_gae = torch.zeros(args.n_envs, device=device)
-        for t in reversed(range(args.n_steps)):
-            if t == args.n_steps - 1:
-                next_nonterminal = 1.0 - next_done_t
-                next_values = next_val
-            else:
-                next_nonterminal = 1.0 - done_buf[t + 1]
-                next_values = val_buf[t + 1]
-            delta = rew_buf[t] + args.gamma * next_values * next_nonterminal - val_buf[t]
-            advantages[t] = last_gae = (
-                delta + args.gamma * args.gae_lambda * next_nonterminal * last_gae
-            )
-        returns = advantages + val_buf
+    advantages, returns = compute_gae(
+        rew_buf, val_buf, done_buf, next_done_t, next_val,
+        args.n_steps, args.n_envs, args.gamma, args.gae_lambda, device,
+    )
 
     b_obs = obs_buf.reshape(-1, OBS_SIZE)
     b_act = act_buf.reshape(-1, ACTION_SIZE)
@@ -416,13 +371,11 @@ def train_unified(args):
             for pg in optimizer.param_groups:
                 pg["lr"] = lr
 
-        t_rollout = time.time()
         next_obs_p0, next_obs_p1, next_done_t, t_infer, t_env = collect_rollout(
             model, None, vec_env, obs_buf, act_buf, logp_buf, rew_buf, done_buf,
             val_buf, next_obs_p0, next_obs_p1, next_done_t, ep_state, args, device,
             use_cuda, _pin_obs_p0, _pin_obs_p1, _pin_rew, _pin_done,
         )
-        rollout_time = time.time() - t_rollout
 
         # Bootstrap value for GAE
         if use_cuda:
@@ -556,13 +509,11 @@ def train_unified(args):
             for pg in optimizer.param_groups:
                 pg["lr"] = lr
 
-        t_rollout = time.time()
         next_obs_p0, next_obs_p1, next_done_t, t_infer, t_env = collect_rollout(
             model, opp_model, vec_env, obs_buf, act_buf, logp_buf, rew_buf, done_buf,
             val_buf, next_obs_p0, next_obs_p1, next_done_t, ep_state, args, device,
             use_cuda, _pin_obs_p0, _pin_obs_p1, _pin_rew, _pin_done,
         )
-        rollout_time = time.time() - t_rollout
 
         if use_cuda:
             _pin_obs_p0.copy_(torch.from_numpy(next_obs_p0))
@@ -652,13 +603,11 @@ def train_unified(args):
             for pg in optimizer.param_groups:
                 pg["lr"] = lr
 
-        t_rollout = time.time()
         next_obs_p0, next_obs_p1, next_done_t, t_infer, t_env = collect_rollout(
             model, opp_model, vec_env, obs_buf, act_buf, logp_buf, rew_buf, done_buf,
             val_buf, next_obs_p0, next_obs_p1, next_done_t, ep_state, args, device,
             use_cuda, _pin_obs_p0, _pin_obs_p1, _pin_rew, _pin_done,
         )
-        rollout_time = time.time() - t_rollout
 
         if use_cuda:
             _pin_obs_p0.copy_(torch.from_numpy(next_obs_p0))
@@ -781,7 +730,7 @@ def train_unified(args):
     model.eval()
     print("\n=== Final Evaluation ===")
     final_results = {}
-    for opp in ["do_nothing", "dogfighter", "chaser", "ace", "brawler"]:
+    for opp in EVAL_OPPONENTS:
         wr = scripted_eval(model, opp, 50, args.action_repeat, device)
         final_results[opp] = wr
         print(f"  vs {opp}: {wr:.0%}")

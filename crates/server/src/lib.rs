@@ -75,16 +75,11 @@ struct ErrorMessage {
 // Policy resolution
 // ---------------------------------------------------------------------------
 
-/// Resolve a policy by name. Returns a boxed `Policy` trait object.
+/// Resolve a policy by name, returning `None` for unknown names.
 ///
 /// Supports built-in names and ONNX model paths:
 /// - `"neural"` loads `policy.onnx` from the current directory
 /// - Any name ending in `.onnx` is loaded as a file path
-pub fn resolve_policy(name: &str) -> Box<dyn Policy> {
-    try_resolve_policy(name).unwrap_or_else(|| panic!("unknown policy: {name}"))
-}
-
-/// Try to resolve a policy by name, returning `None` for unknown names.
 fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
     match name {
         "do_nothing" => Some(Box::new(DoNothingPolicy)),
@@ -174,34 +169,27 @@ async fn handle_socket(mut socket: WebSocket) {
         AVAILABLE_POLICIES.contains(&name) || name.ends_with(".onnx")
     }
 
-    if !is_valid_policy(&req.p0) {
-        let _ = send_error(
-            &mut socket,
-            &format!("unknown policy for p0: {}", req.p0),
-        )
-        .await;
-        return;
-    }
-
-    if !is_valid_policy(&req.p1) {
-        let _ = send_error(
-            &mut socket,
-            &format!("unknown policy for p1: {}", req.p1),
-        )
-        .await;
-        return;
+    for (label, name) in [("p0", &req.p0), ("p1", &req.p1)] {
+        if !is_valid_policy(name) {
+            let _ = send_error(
+                &mut socket,
+                &format!("unknown policy for {label}: {name}"),
+            )
+            .await;
+            return;
+        }
     }
 
     // 3. Build match config and run the match on a blocking thread so that
     //    `Box<dyn Policy>` (which is not `Send`) never lives across an await.
-    let p0_name = req.p0.clone();
-    let p1_name = req.p1.clone();
     let seed = req.seed.unwrap_or(0);
     let randomize_spawns = req.randomize_spawns.unwrap_or(false);
+    let p0_name = req.p0;
+    let p1_name = req.p1;
 
     let replay = tokio::task::spawn_blocking(move || {
-        let mut p0 = try_resolve_policy(&p0_name).unwrap();
-        let mut p1 = try_resolve_policy(&p1_name).unwrap();
+        let mut p0 = try_resolve_policy(&p0_name).expect("policy already validated");
+        let mut p1 = try_resolve_policy(&p1_name).expect("policy already validated");
 
         // ONNX models were trained with action_repeat=10, so set control_period=10
         let p0_period = if is_onnx_policy(&p0_name) { 10 } else { 1 };

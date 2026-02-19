@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 
@@ -87,11 +87,8 @@ enum Commands {
 
 /// Resolve a policy name to a boxed Policy trait object.
 ///
-/// Supported names:
-/// - "chaser" -> ChaserPolicy
-/// - "dogfighter" -> DogfighterPolicy
-/// - "do_nothing" -> DoNothingPolicy
-/// - A path ending in ".onnx" -> falls back to DoNothingPolicy with a warning
+/// Supported names: chaser, dogfighter, ace, brawler, do_nothing, neural,
+/// or a path ending in ".onnx". Exits the process on unknown policy or load failure.
 fn resolve_policy(name: &str) -> Box<dyn Policy> {
     match name {
         "chaser" => Box::new(ChaserPolicy::new()),
@@ -99,28 +96,16 @@ fn resolve_policy(name: &str) -> Box<dyn Policy> {
         "ace" => Box::new(AcePolicy::new()),
         "brawler" => Box::new(BrawlerPolicy::new()),
         "do_nothing" => Box::new(DoNothingPolicy),
-        "neural" => {
-            let path = std::path::Path::new("policy.onnx");
-            match OnnxPolicy::load(path) {
-                Ok(p) => {
-                    println!("Loaded ONNX policy from {}", path.display());
-                    Box::new(p)
-                }
-                Err(e) => {
-                    eprintln!("Failed to load policy.onnx: {e}");
-                    std::process::exit(1);
-                }
-            }
-        }
-        path if path.ends_with(".onnx") => {
-            let p = std::path::Path::new(path);
+        path if path == "neural" || path.ends_with(".onnx") => {
+            let onnx_path = if path == "neural" { "policy.onnx" } else { path };
+            let p = std::path::Path::new(onnx_path);
             match OnnxPolicy::load(p) {
                 Ok(policy) => {
                     println!("Loaded ONNX policy from {}", p.display());
                     Box::new(policy)
                 }
                 Err(e) => {
-                    eprintln!("Failed to load ONNX policy '{}': {e}", path);
+                    eprintln!("Failed to load ONNX policy '{}': {e}", p.display());
                     std::process::exit(1);
                 }
             }
@@ -170,10 +155,8 @@ fn cmd_run(p0_name: &str, p1_name: &str, seed: u64, output: Option<PathBuf>, ran
         seed,
         p0_name: p0.name().to_string(),
         p1_name: p1.name().to_string(),
-        p0_control_period: 1,
-        p1_control_period: 1,
-        max_ticks: MAX_TICKS,
         randomize_spawns: randomize,
+        ..Default::default()
     };
 
     println!(
@@ -213,8 +196,7 @@ fn cmd_run(p0_name: &str, p1_name: &str, seed: u64, output: Option<PathBuf>, ran
     }
 }
 
-fn cmd_validate(model_path: &PathBuf) {
-    // TODO: Wire up dogfight-validator once onnxruntime is available
+fn cmd_validate(model_path: &Path) {
     println!(
         "ONNX validation requires onnxruntime library (model: {})",
         model_path.display()
@@ -364,10 +346,8 @@ fn cmd_analyze(policies_str: &str, seeds: u32, label: Option<&str>, randomize: b
                     seed: seed as u64,
                     p0_name: p0.name().to_string(),
                     p1_name: p1.name().to_string(),
-                    p0_control_period: 1,
-                    p1_control_period: 1,
-                    max_ticks: MAX_TICKS,
                     randomize_spawns: randomize,
+                    ..Default::default()
                 };
 
                 let replay = run_match(&config, p0.as_mut(), p1.as_mut());

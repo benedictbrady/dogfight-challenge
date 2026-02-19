@@ -5,12 +5,9 @@ sampling strategies (PFSP, uniform, latest, mixed).
 """
 
 import json
-import os
-import shutil
 from collections import OrderedDict
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Optional
 
 import torch
 
@@ -30,6 +27,9 @@ class PoolEntry:
     @property
     def win_rate(self) -> float:
         return self.wins / self.games if self.games > 0 else 0.5
+
+
+PFSP_EPS = 0.1  # Epsilon for PFSP sampling to avoid zero weights
 
 
 class OpponentPool:
@@ -141,11 +141,10 @@ class OpponentPool:
         raise ValueError(f"Unknown sampling method: {method}")
 
     def _sample_pfsp(self) -> PoolEntry:
-        """PFSP sampling: weight ∝ (1 - win_rate + eps)."""
+        """PFSP sampling: weight ∝ (1 - win_rate + PFSP_EPS)."""
         import random
 
-        eps = 0.1
-        weights = [1.0 - e.win_rate + eps for e in self.entries]
+        weights = [1.0 - e.win_rate + PFSP_EPS for e in self.entries]
         total = sum(weights)
         weights = [w / total for w in weights]
         return random.choices(self.entries, weights=weights, k=1)[0]

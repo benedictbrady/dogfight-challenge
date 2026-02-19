@@ -9,6 +9,51 @@ interface MatchSetupProps {
   isConnected: boolean;
 }
 
+function PlayerSelector({
+  label,
+  colorClass,
+  focusClass,
+  policies,
+  value,
+  onChange,
+}: {
+  label: string;
+  colorClass: string;
+  focusClass: string;
+  policies: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <label className={`block text-xs ${colorClass} mb-1 font-medium`}>
+        {label}
+      </label>
+      {policies.length > 0 ? (
+        <select
+          className={`w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 ${focusClass} focus:outline-none`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          {policies.map((pol) => (
+            <option key={pol} value={pol}>
+              {pol}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type="text"
+          className={`w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 ${focusClass} focus:outline-none`}
+          placeholder="Policy name..."
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: MatchSetupProps) {
   const [policies, setPolicies] = useState<string[]>([]);
   const [p0, setP0] = useState("");
@@ -58,61 +103,23 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
         Match Setup
       </h2>
 
-      {/* Player 0 */}
-      <div>
-        <label className="block text-xs text-blue-600 mb-1 font-medium">
-          Player 0 (Blue)
-        </label>
-        {policies.length > 0 ? (
-          <select
-            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-indigo-500 focus:outline-none"
-            value={p0}
-            onChange={(e) => setP0(e.target.value)}
-          >
-            {policies.map((pol) => (
-              <option key={pol} value={pol}>
-                {pol}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <input
-            type="text"
-            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-indigo-500 focus:outline-none"
-            placeholder="Policy name..."
-            value={p0}
-            onChange={(e) => setP0(e.target.value)}
-          />
-        )}
-      </div>
+      <PlayerSelector
+        label="Player 0 (Blue)"
+        colorClass="text-blue-600"
+        focusClass="focus:border-indigo-500"
+        policies={policies}
+        value={p0}
+        onChange={setP0}
+      />
 
-      {/* Player 1 */}
-      <div>
-        <label className="block text-xs text-red-600 mb-1 font-medium">
-          Player 1 (Red)
-        </label>
-        {policies.length > 0 ? (
-          <select
-            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-red-500 focus:outline-none"
-            value={p1}
-            onChange={(e) => setP1(e.target.value)}
-          >
-            {policies.map((pol) => (
-              <option key={pol} value={pol}>
-                {pol}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <input
-            type="text"
-            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-red-500 focus:outline-none"
-            placeholder="Policy name..."
-            value={p1}
-            onChange={(e) => setP1(e.target.value)}
-          />
-        )}
-      </div>
+      <PlayerSelector
+        label="Player 1 (Red)"
+        colorClass="text-red-600"
+        focusClass="focus:border-red-500"
+        policies={policies}
+        value={p1}
+        onChange={setP1}
+      />
 
       {/* Seed */}
       <div>
