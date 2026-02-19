@@ -46,6 +46,17 @@ export interface MatchConfig {
   randomize_spawns?: boolean;
 }
 
+export interface ManualPlayers {
+  p0: boolean;
+  p1: boolean;
+}
+
+export interface ManualAction {
+  yaw_input: number;
+  throttle: number;
+  shoot: boolean;
+}
+
 // --- Hook ---
 
 export function useMatch() {
@@ -56,9 +67,11 @@ export function useMatch() {
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [manualPlayers, setManualPlayers] = useState<ManualPlayers>({ p0: false, p1: false });
 
   const wsRef = useRef<WebSocket | null>(null);
   const playbackRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isLiveMode = (manualPlayers.p0 || manualPlayers.p1) && !isComplete;
 
   // Playback timer
   useEffect(() => {
@@ -67,7 +80,7 @@ export function useMatch() {
       playbackRef.current = null;
     }
 
-    if (isPlaying && frames.length > 0) {
+    if (isPlaying && frames.length > 0 && !isLiveMode) {
       // Base rate: 30fps (one tick per ~33ms at 1x speed)
       const interval = Math.max(8, Math.round(33 / speed));
       playbackRef.current = setInterval(() => {
@@ -87,7 +100,7 @@ export function useMatch() {
         clearInterval(playbackRef.current);
       }
     };
-  }, [isPlaying, speed, frames.length]);
+  }, [isPlaying, speed, frames.length, isLiveMode]);
 
   const startMatch = useCallback((config: MatchConfig) => {
     // Close existing connection
@@ -101,6 +114,12 @@ export function useMatch() {
     setIsPlaying(false);
     setMatchResult(null);
     setIsComplete(false);
+    const nextManualPlayers: ManualPlayers = {
+      p0: config.p0 === "manual",
+      p1: config.p1 === "manual",
+    };
+    setManualPlayers(nextManualPlayers);
+    const liveMatch = nextManualPlayers.p0 || nextManualPlayers.p1;
 
     const ws = new WebSocket("ws://localhost:3001/api/match");
     wsRef.current = ws;
@@ -122,13 +141,21 @@ export function useMatch() {
             bullets: msg.bullets ?? [],
             hits: [],
           };
-          setFrames((prev) => {
-            // Auto-start playback once we have a few frames buffered
-            if (prev.length === 10) {
-              setIsPlaying(true);
-            }
-            return [...prev, frame];
-          });
+          if (liveMatch) {
+            setFrames((prev) => {
+              const next = [...prev, frame];
+              setCurrentFrameIndex(next.length - 1);
+              return next;
+            });
+          } else {
+            setFrames((prev) => {
+              // Auto-start playback once we have a few frames buffered
+              if (prev.length === 10) {
+                setIsPlaying(true);
+              }
+              return [...prev, frame];
+            });
+          }
         } else if (msg.type === "result") {
           const winner =
             msg.outcome === "Player0Win" ? 0 :
@@ -138,6 +165,9 @@ export function useMatch() {
             reason: msg.reason ?? "",
           });
           setIsComplete(true);
+          if (liveMatch) {
+            setIsPlaying(false);
+          }
         } else if (msg.type === "error") {
           console.error("Match error:", msg.error);
         }
@@ -154,6 +184,21 @@ export function useMatch() {
       console.error("WebSocket error:", error);
       setIsConnected(false);
     };
+  }, []);
+
+  const sendManualInput = useCallback((player: 0 | 1, action: ManualAction) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    ws.send(
+      JSON.stringify({
+        type: "input",
+        player,
+        action,
+      })
+    );
   }, []);
 
   // Cleanup on unmount
@@ -176,6 +221,9 @@ export function useMatch() {
     matchResult,
     isConnected,
     isComplete,
+    manualPlayers,
+    isLiveMode,
     startMatch,
+    sendManualInput,
   };
 }

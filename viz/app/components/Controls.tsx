@@ -5,6 +5,7 @@ interface ControlsProps {
   totalFrames: number;
   isPlaying: boolean;
   speed: number;
+  isLive: boolean;
   onSetFrame: (frame: number) => void;
   onTogglePlay: () => void;
   onSetSpeed: (speed: number) => void;
@@ -17,11 +18,12 @@ export default function Controls({
   totalFrames,
   isPlaying,
   speed,
+  isLive,
   onSetFrame,
   onTogglePlay,
   onSetSpeed,
 }: ControlsProps) {
-  const canStep = totalFrames > 0;
+  const canStep = totalFrames > 0 && !isLive;
 
   return (
     <div className="bg-white border-t border-gray-200 px-4 py-2 flex items-center gap-3">
@@ -38,10 +40,10 @@ export default function Controls({
 
         <button
           className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded text-gray-700 disabled:opacity-30 min-w-[60px] border border-gray-200"
-          disabled={totalFrames === 0}
+          disabled={totalFrames === 0 || isLive}
           onClick={onTogglePlay}
         >
-          {isPlaying ? "Pause" : "Play"}
+          {isLive ? "Live" : isPlaying ? "Pause" : "Play"}
         </button>
 
         <button
@@ -63,7 +65,7 @@ export default function Controls({
           value={currentFrame}
           onChange={(e) => onSetFrame(Number(e.target.value))}
           className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-          disabled={totalFrames === 0}
+          disabled={totalFrames === 0 || isLive}
         />
       </div>
 
@@ -83,6 +85,7 @@ export default function Controls({
                 ? "bg-indigo-100 text-indigo-700 border-indigo-300"
                 : "bg-gray-100 hover:bg-gray-200 text-gray-500 border-gray-200"
             }`}
+            disabled={isLive}
             onClick={() => onSetSpeed(s)}
           >
             {s}x

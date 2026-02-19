@@ -13,10 +13,20 @@ use dogfight_sim::{run_match, DoNothingPolicy, Policy, SimState};
 use dogfight_validator::OnnxPolicy;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::time::Duration;
 use tower_http::cors::CorsLayer;
 
 /// Available built-in policy names.
-const AVAILABLE_POLICIES: &[&str] = &["dogfighter", "chaser", "ace", "brawler", "do_nothing", "neural"];
+const MANUAL_POLICY: &str = "manual";
+const AVAILABLE_POLICIES: &[&str] = &[
+    "dogfighter",
+    "chaser",
+    "ace",
+    "brawler",
+    "do_nothing",
+    "neural",
+    MANUAL_POLICY,
+];
 
 // ---------------------------------------------------------------------------
 // Serde types for WebSocket messages
@@ -29,6 +39,23 @@ struct MatchRequest {
     p1: String,
     seed: Option<u64>,
     randomize_spawns: Option<bool>,
+}
+
+/// Manual control input message sent by the client after match start.
+#[derive(Debug, Deserialize)]
+struct InputMessage {
+    #[serde(rename = "type")]
+    msg_type: String,
+    player: usize,
+    action: InputActionPayload,
+}
+
+/// Action payload for manual control.
+#[derive(Debug, Deserialize)]
+struct InputActionPayload {
+    yaw_input: f32,
+    throttle: f32,
+    shoot: bool,
 }
 
 /// A single frame streamed to the client.
@@ -100,6 +127,10 @@ fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
 
 fn is_onnx_policy(name: &str) -> bool {
     name == "neural" || name.ends_with(".onnx")
+}
+
+fn is_manual_policy(name: &str) -> bool {
+    name == MANUAL_POLICY
 }
 
 fn load_onnx_policy(path: &Path) -> Option<Box<dyn Policy>> {
@@ -175,20 +206,19 @@ async fn handle_socket(mut socket: WebSocket) {
     }
 
     if !is_valid_policy(&req.p0) {
-        let _ = send_error(
-            &mut socket,
-            &format!("unknown policy for p0: {}", req.p0),
-        )
-        .await;
+        let _ = send_error(&mut socket, &format!("unknown policy for p0: {}", req.p0)).await;
         return;
     }
 
     if !is_valid_policy(&req.p1) {
-        let _ = send_error(
-            &mut socket,
-            &format!("unknown policy for p1: {}", req.p1),
-        )
-        .await;
+        let _ = send_error(&mut socket, &format!("unknown policy for p1: {}", req.p1)).await;
+        return;
+    }
+
+    if is_manual_policy(&req.p0) || is_manual_policy(&req.p1) {
+        if let Err(e) = run_realtime_match(&mut socket, req).await {
+            eprintln!("realtime match error: {e}");
+        }
         return;
     }
 
@@ -223,49 +253,190 @@ async fn handle_socket(mut socket: WebSocket) {
 
     // 4. Stream each frame.
     for frame in &replay.frames {
-        let msg = FrameMessage {
-            msg_type: "frame",
-            tick: frame.tick,
-            fighters: frame.fighters.to_vec(),
-            bullets: frame.bullets.clone(),
-        };
-        let json = match serde_json::to_string(&msg) {
-            Ok(j) => j,
-            Err(_) => continue,
-        };
-        if socket.send(Message::Text(json.into())).await.is_err() {
+        if send_frame(&mut socket, frame).await.is_err() {
             return; // client disconnected
         }
     }
 
     // 5. Send the result message.
+    let _ = send_result(&mut socket, &replay.result).await;
+}
+
+/// Run a realtime match that accepts manual input for either player.
+async fn run_realtime_match(socket: &mut WebSocket, req: MatchRequest) -> Result<(), axum::Error> {
+    let seed = req.seed.unwrap_or(0);
+    let randomize_spawns = req.randomize_spawns.unwrap_or(false);
+
+    let manual_p0 = is_manual_policy(&req.p0);
+    let manual_p1 = is_manual_policy(&req.p1);
+
+    let mut p0_policy = if manual_p0 {
+        None
+    } else {
+        Some(resolve_policy(&req.p0))
+    };
+    let mut p1_policy = if manual_p1 {
+        None
+    } else {
+        Some(resolve_policy(&req.p1))
+    };
+
+    // ONNX models were trained with action_repeat=10, so set control_period=10.
+    let p0_period = if !manual_p0 && is_onnx_policy(&req.p0) {
+        10
+    } else {
+        1
+    };
+    let p1_period = if !manual_p1 && is_onnx_policy(&req.p1) {
+        10
+    } else {
+        1
+    };
+
+    let mut action0 = if manual_p0 {
+        Action {
+            yaw_input: 0.0,
+            throttle: 0.85,
+            shoot: false,
+        }
+    } else {
+        Action::none()
+    };
+    let mut action1 = if manual_p1 {
+        Action {
+            yaw_input: 0.0,
+            throttle: 0.85,
+            shoot: false,
+        }
+    } else {
+        Action::none()
+    };
+
+    let mut state = SimState::new_with_seed(seed, randomize_spawns);
+    send_frame(socket, &state.snapshot()).await?;
+
+    let mut ticker = tokio::time::interval(Duration::from_micros(TICK_DURATION_US));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        tokio::select! {
+            _ = ticker.tick() => {
+                if state.is_terminal() {
+                    break;
+                }
+
+                if !manual_p0 && state.tick % p0_period == 0 {
+                    if let Some(policy) = p0_policy.as_mut() {
+                        action0 = policy.act(&state.observe(0));
+                    }
+                }
+                if !manual_p1 && state.tick % p1_period == 0 {
+                    if let Some(policy) = p1_policy.as_mut() {
+                        action1 = policy.act(&state.observe(1));
+                    }
+                }
+
+                state.step(&[action0, action1]);
+
+                if state.tick % FRAME_INTERVAL == 0 || state.is_terminal() {
+                    send_frame(socket, &state.snapshot()).await?;
+                }
+
+                if state.is_terminal() {
+                    break;
+                }
+            }
+            inbound = socket.recv() => {
+                match inbound {
+                    Some(Ok(Message::Text(text))) => {
+                        apply_manual_input(&text, manual_p0, manual_p1, &mut action0, &mut action1);
+                    }
+                    Some(Ok(Message::Close(_))) | None => return Ok(()),
+                    Some(Ok(_)) => {}
+                    Some(Err(e)) => return Err(e),
+                }
+            }
+        }
+    }
+
+    let (outcome, reason) = state.outcome();
+    let result = MatchResult {
+        outcome,
+        reason,
+        final_tick: state.tick,
+        stats: state.stats,
+    };
+
+    send_result(socket, &result).await
+}
+
+fn apply_manual_input(
+    text: &str,
+    manual_p0: bool,
+    manual_p1: bool,
+    action0: &mut Action,
+    action1: &mut Action,
+) {
+    let msg = match serde_json::from_str::<InputMessage>(text) {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    if msg.msg_type != "input" {
+        return;
+    }
+
+    let action = Action {
+        yaw_input: msg.action.yaw_input.clamp(-1.0, 1.0),
+        throttle: msg.action.throttle.clamp(0.0, 1.0),
+        shoot: msg.action.shoot,
+    };
+
+    match msg.player {
+        0 if manual_p0 => *action0 = action,
+        1 if manual_p1 => *action1 = action,
+        _ => {}
+    }
+}
+
+async fn send_frame(socket: &mut WebSocket, frame: &ReplayFrame) -> Result<(), axum::Error> {
+    let msg = FrameMessage {
+        msg_type: "frame",
+        tick: frame.tick,
+        fighters: frame.fighters.to_vec(),
+        bullets: frame.bullets.clone(),
+    };
+    let json = match serde_json::to_string(&msg) {
+        Ok(j) => j,
+        Err(_) => return Ok(()),
+    };
+    socket.send(Message::Text(json.into())).await
+}
+
+async fn send_result(socket: &mut WebSocket, result: &MatchResult) -> Result<(), axum::Error> {
     let result_msg = ResultMessage {
         msg_type: "result",
-        outcome: replay.result.outcome,
-        reason: replay.result.reason,
-        final_tick: replay.result.final_tick,
+        outcome: result.outcome,
+        reason: result.reason,
+        final_tick: result.final_tick,
         stats: StatsPayload {
-            p0_hp: replay.result.stats.p0_hp,
-            p1_hp: replay.result.stats.p1_hp,
-            p0_hits: replay.result.stats.p0_hits,
-            p1_hits: replay.result.stats.p1_hits,
-            p0_shots: replay.result.stats.p0_shots,
-            p1_shots: replay.result.stats.p1_shots,
+            p0_hp: result.stats.p0_hp,
+            p1_hp: result.stats.p1_hp,
+            p0_hits: result.stats.p0_hits,
+            p1_hits: result.stats.p1_hits,
+            p0_shots: result.stats.p0_shots,
+            p1_shots: result.stats.p1_shots,
         },
     };
 
     let json = match serde_json::to_string(&result_msg) {
         Ok(j) => j,
-        Err(_) => return,
+        Err(_) => return Ok(()),
     };
-    let _ = socket.send(Message::Text(json.into())).await;
+    socket.send(Message::Text(json.into())).await
 }
 
 /// Send a JSON error message over the WebSocket and close.
-async fn send_error(
-    socket: &mut WebSocket,
-    error: &str,
-) -> Result<(), axum::Error> {
+async fn send_error(socket: &mut WebSocket, error: &str) -> Result<(), axum::Error> {
     let msg = ErrorMessage {
         msg_type: "error",
         error: error.to_string(),

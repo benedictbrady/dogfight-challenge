@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import type { MatchConfig } from "../hooks/useMatch";
 
+const MANUAL_POLICY = "manual";
+
 interface MatchSetupProps {
   onStartMatch: (config: MatchConfig) => void;
   onSeedChange: (seed: number) => void;
@@ -16,6 +18,11 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1000000));
   const [loading, setLoading] = useState(false);
   const [serverOnline, setServerOnline] = useState(false);
+  const policyOptions = policies.includes(MANUAL_POLICY)
+    ? policies
+    : [...policies, MANUAL_POLICY];
+  const manualCount = Number(p0 === MANUAL_POLICY) + Number(p1 === MANUAL_POLICY);
+  const manualSelected = manualCount > 0;
 
   // Notify parent of initial seed so spawn positions load on mount
   useEffect(() => {
@@ -46,7 +53,7 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
   }, []);
 
   const handleStart = () => {
-    if (!p0 || !p1) return;
+    if (!p0 || !p1 || manualCount > 1) return;
     setLoading(true);
     onStartMatch({ p0, p1, seed, randomize_spawns: true });
     setTimeout(() => setLoading(false), 1000);
@@ -69,7 +76,7 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
             value={p0}
             onChange={(e) => setP0(e.target.value)}
           >
-            {policies.map((pol) => (
+            {policyOptions.map((pol) => (
               <option key={pol} value={pol}>
                 {pol}
               </option>
@@ -97,7 +104,7 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
             value={p1}
             onChange={(e) => setP1(e.target.value)}
           >
-            {policies.map((pol) => (
+            {policyOptions.map((pol) => (
               <option key={pol} value={pol}>
                 {pol}
               </option>
@@ -134,10 +141,16 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
         className="w-full py-2 rounded text-sm font-semibold tracking-wider transition-colors disabled:opacity-40
           bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-700"
         onClick={handleStart}
-        disabled={loading || (!p0 && !p1)}
+        disabled={loading || !p0 || !p1 || manualCount > 1}
       >
         {loading ? "Starting..." : isConnected ? "New Match" : "Start Match"}
       </button>
+
+      {manualCount > 1 && (
+        <p className="text-xs text-amber-600">
+          Select manual mode for only one player at a time.
+        </p>
+      )}
 
       {/* Connection status */}
       <div className="flex items-center gap-2 text-xs text-gray-500">
@@ -155,6 +168,14 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
         <p>Controls:</p>
         <p className="pl-2">- Scroll to zoom</p>
         <p className="pl-2">- Right-click drag to pan</p>
+        {manualSelected && (
+          <>
+            <p className="pt-1 text-gray-500">Manual flight:</p>
+            <p className="pl-2">- A/D or Left/Right: turn</p>
+            <p className="pl-2">- W/S or Up/Down: boost/brake</p>
+            <p className="pl-2">- Space: fire</p>
+          </>
+        )}
       </div>
     </div>
   );
