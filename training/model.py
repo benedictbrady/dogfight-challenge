@@ -7,6 +7,11 @@ import numpy as np
 OBS_SIZE = 46
 ACTION_SIZE = 3
 
+# Log-std constants for continuous action distributions
+LOG_STD_INIT = -1.0
+LOG_STD_MIN = -2.0
+LOG_STD_MAX = 0.0
+
 
 def orthogonal_init(module, gain=np.sqrt(2)):
     """Apply orthogonal initialization to a module's weight and zero its bias."""
@@ -83,13 +88,12 @@ class ActorCritic(nn.Module):
         # Critic
         self.value_head = nn.Linear(hidden, 1)
         # Learned log_std for continuous actions (yaw, throttle)
-        self.log_std = nn.Parameter(torch.full((2,), -1.0))
+        self.log_std = nn.Parameter(torch.full((2,), LOG_STD_INIT))
 
         # Orthogonal init
-        for module in self.backbone_actor.modules():
-            orthogonal_init(module)
-        for module in self.backbone_critic.modules():
-            orthogonal_init(module)
+        for backbone in (self.backbone_actor, self.backbone_critic):
+            for module in backbone.modules():
+                orthogonal_init(module)
         orthogonal_init(self.cont_head, gain=0.01)
         orthogonal_init(self.shoot_head, gain=0.01)
         orthogonal_init(self.value_head, gain=1.0)
@@ -112,7 +116,7 @@ class ActorCritic(nn.Module):
         Actions are RAW (unbounded). Caller must clamp before sending to env.
         """
         cont_mean, shoot_logit, value, log_std = self(obs)
-        log_std = log_std.clamp(-2.0, 0.0)
+        log_std = log_std.clamp(LOG_STD_MIN, LOG_STD_MAX)
         std = log_std.exp()
 
         # Continuous distributions over raw (unbounded) values

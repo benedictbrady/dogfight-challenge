@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Canvas, extend } from "@react-three/fiber";
+import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import Arena from "./Arena";
@@ -10,20 +10,8 @@ import Bullet from "./Bullet";
 import HitEffect from "./HitEffect";
 import type { Frame } from "../hooks/useMatch";
 
-extend({
-  Mesh: THREE.Mesh,
-  Group: THREE.Group,
-  Color: THREE.Color,
-  CircleGeometry: THREE.CircleGeometry,
-  PlaneGeometry: THREE.PlaneGeometry,
-  ShapeGeometry: THREE.ShapeGeometry,
-  RingGeometry: THREE.RingGeometry,
-  MeshBasicMaterial: THREE.MeshBasicMaterial,
-});
-
 interface SceneProps {
   frame: Frame | null;
-  cameraMode: "free" | "chase0" | "chase1";
   trailFrames: Frame[];
 }
 
@@ -32,22 +20,16 @@ function SceneContent({ frame, trailFrames }: SceneProps) {
     const t0: THREE.Vector3[] = [];
     const t1: THREE.Vector3[] = [];
     for (const f of trailFrames) {
-      if (f.fighters[0]) {
-        t0.push(new THREE.Vector3(f.fighters[0].x, f.fighters[0].y, 0));
-      }
-      if (f.fighters[1]) {
-        t1.push(new THREE.Vector3(f.fighters[1].x, f.fighters[1].y, 0));
-      }
+      t0.push(new THREE.Vector3(f.fighters[0].x, f.fighters[0].y, 0));
+      t1.push(new THREE.Vector3(f.fighters[1].x, f.fighters[1].y, 0));
     }
     return [t0, t1];
   }, [trailFrames]);
 
   return (
     <>
-      {/* Off-white background */}
       <color attach="background" args={["#f8f8f8"]} />
 
-      {/* Pan/zoom only */}
       <OrbitControls
         enableRotate={false}
         enableDamping
@@ -59,8 +41,7 @@ function SceneContent({ frame, trailFrames }: SceneProps) {
 
       <Arena />
 
-      {/* P0 — Blue */}
-      {frame && frame.fighters[0] && (
+      {frame && (
         <Fighter
           state={frame.fighters[0]}
           color="#2563eb"
@@ -68,8 +49,7 @@ function SceneContent({ frame, trailFrames }: SceneProps) {
           trail={trails[0]}
         />
       )}
-      {/* P1 — Red */}
-      {frame && frame.fighters[1] && (
+      {frame && (
         <Fighter
           state={frame.fighters[1]}
           color="#dc2626"
@@ -89,7 +69,7 @@ function SceneContent({ frame, trailFrames }: SceneProps) {
   );
 }
 
-export default function Scene({ frame, cameraMode, trailFrames }: SceneProps) {
+export default function Scene({ frame, trailFrames }: SceneProps) {
   return (
     <Canvas
       orthographic
@@ -104,7 +84,6 @@ export default function Scene({ frame, cameraMode, trailFrames }: SceneProps) {
     >
       <SceneContent
         frame={frame}
-        cameraMode={cameraMode}
         trailFrames={trailFrames}
       />
     </Canvas>

@@ -1,6 +1,48 @@
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
 
+/// Configurable physics parameters for domain randomization.
+/// Default values match the global constants in `constants.rs`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct SimConfig {
+    // Energy economy
+    pub gravity: f32,
+    pub drag_coeff: f32,
+    pub turn_bleed_coeff: f32,
+    pub max_speed: f32,
+    pub min_speed: f32,
+    pub max_thrust: f32,
+    // Lethality
+    pub bullet_speed: f32,
+    pub gun_cooldown_ticks: u32,
+    pub bullet_lifetime_ticks: u32,
+    pub max_hp: u8,
+    // Positioning
+    pub max_turn_rate: f32,
+    pub min_turn_rate: f32,
+    pub rear_aspect_cone: f32,
+}
+
+impl Default for SimConfig {
+    fn default() -> Self {
+        Self {
+            gravity: crate::GRAVITY,
+            drag_coeff: crate::DRAG_COEFF,
+            turn_bleed_coeff: crate::TURN_BLEED_COEFF,
+            max_speed: crate::MAX_SPEED,
+            min_speed: crate::MIN_SPEED,
+            max_thrust: crate::MAX_THRUST,
+            bullet_speed: crate::BULLET_SPEED,
+            gun_cooldown_ticks: crate::GUN_COOLDOWN_TICKS,
+            bullet_lifetime_ticks: crate::BULLET_LIFETIME_TICKS,
+            max_hp: crate::MAX_HP,
+            max_turn_rate: crate::MAX_TURN_RATE,
+            min_turn_rate: crate::MIN_TURN_RATE,
+            rear_aspect_cone: crate::REAR_ASPECT_CONE,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FighterState {
     pub position: Vec2,
@@ -161,6 +203,8 @@ pub struct MatchConfig {
     pub p1_control_period: u32,
     pub max_ticks: u32,
     pub randomize_spawns: bool,
+    #[serde(default)]
+    pub sim_config: SimConfig,
 }
 
 impl Default for MatchConfig {
@@ -173,6 +217,7 @@ impl Default for MatchConfig {
             p1_control_period: 1,
             max_ticks: crate::MAX_TICKS,
             randomize_spawns: false,
+            sim_config: SimConfig::default(),
         }
     }
 }

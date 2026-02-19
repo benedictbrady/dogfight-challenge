@@ -7,6 +7,8 @@ import MatchSetup from "./components/MatchSetup";
 import DebugOverlay from "./components/DebugOverlay";
 import { useMatch, MatchConfig, Frame } from "./hooks/useMatch";
 
+const MAX_HP = 5;
+
 const DEFAULT_FRAME: Frame = {
   tick: 0,
   fighters: [
@@ -31,7 +33,6 @@ export default function Home() {
     startMatch,
   } = useMatch();
 
-  const [cameraMode] = useState<"free" | "chase0" | "chase1">("free");
   const [spawnFrame, setSpawnFrame] = useState<Frame>(DEFAULT_FRAME);
 
   // Fetch starting positions for a given seed
@@ -67,7 +68,6 @@ export default function Home() {
 
   return (
     <div className="w-screen h-screen flex flex-col bg-[#f8f8f8]">
-      {/* Top bar */}
       <div className="flex-shrink-0 h-10 bg-white border-b border-gray-200 flex items-center px-4 gap-4 z-10">
         <span className="text-sm font-bold text-gray-800 tracking-[0.15em]">
           DOGFIGHT
@@ -79,7 +79,7 @@ export default function Home() {
           <div className="w-24 h-3 bg-gray-100 rounded-sm border border-gray-200 overflow-hidden">
             <div
               className="h-full bg-blue-500 transition-all duration-200"
-              style={{ width: `${(currentFrame.fighters[0].hp / 5) * 100}%` }}
+              style={{ width: `${(currentFrame.fighters[0].hp / MAX_HP) * 100}%` }}
             />
           </div>
         </div>
@@ -90,7 +90,7 @@ export default function Home() {
           <div className="w-24 h-3 bg-gray-100 rounded-sm border border-gray-200 overflow-hidden">
             <div
               className="h-full bg-red-500 transition-all duration-200"
-              style={{ width: `${(currentFrame.fighters[1].hp / 5) * 100}%` }}
+              style={{ width: `${(currentFrame.fighters[1].hp / MAX_HP) * 100}%` }}
             />
           </div>
         </div>
@@ -124,7 +124,6 @@ export default function Home() {
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Left sidebar */}
         <div className="flex-shrink-0 w-64 bg-white/95 backdrop-blur-sm border-r border-gray-200 overflow-y-auto z-10">
           <MatchSetup
             onStartMatch={handleStartMatch}
@@ -133,11 +132,9 @@ export default function Home() {
           />
         </div>
 
-        {/* Scene */}
         <div className="flex-1 relative">
           <Scene
             frame={currentFrame}
-            cameraMode={cameraMode}
             trailFrames={frames.slice(0, currentFrameIndex + 1)}
           />
           <DebugOverlay

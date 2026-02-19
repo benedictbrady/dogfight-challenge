@@ -23,15 +23,106 @@ fn resolve_policy(name: &str) -> PyResult<Box<dyn Policy>> {
     }
 }
 
-/// Create a policy from name (infallible version for internal use).
-fn make_policy(name: &str) -> Box<dyn Policy> {
+/// Create a policy with a specific SimConfig (for domain randomization).
+fn make_policy_with_config(name: &str, config: SimConfig) -> Box<dyn Policy> {
     match name {
         "do_nothing" => Box::new(DoNothingPolicy),
-        "chaser" => Box::new(ChaserPolicy::new()),
-        "dogfighter" => Box::new(DogfighterPolicy::new()),
-        "ace" => Box::new(AcePolicy::new()),
-        "brawler" => Box::new(BrawlerPolicy::new()),
+        "chaser" => Box::new(ChaserPolicy::with_config(config)),
+        "dogfighter" => Box::new(DogfighterPolicy::with_config(config)),
+        "ace" => Box::new(AcePolicy::with_config(config)),
+        "brawler" => Box::new(BrawlerPolicy::with_config(config)),
         _ => Box::new(DoNothingPolicy),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SimConfigRanges — domain randomization parameter ranges
+// ---------------------------------------------------------------------------
+
+/// Configurable ranges for domain randomization. Each field is `Option<(min, max)>`.
+/// `None` = use default value, `Some((min, max))` = sample uniformly per episode.
+#[derive(Clone, Default)]
+struct SimConfigRanges {
+    gravity: Option<(f32, f32)>,
+    drag_coeff: Option<(f32, f32)>,
+    turn_bleed_coeff: Option<(f32, f32)>,
+    max_speed: Option<(f32, f32)>,
+    min_speed: Option<(f32, f32)>,
+    max_thrust: Option<(f32, f32)>,
+    bullet_speed: Option<(f32, f32)>,
+    gun_cooldown_ticks: Option<(u32, u32)>,
+    bullet_lifetime_ticks: Option<(u32, u32)>,
+    max_hp: Option<(u8, u8)>,
+    max_turn_rate: Option<(f32, f32)>,
+    min_turn_rate: Option<(f32, f32)>,
+    rear_aspect_cone: Option<(f32, f32)>,
+}
+
+impl SimConfigRanges {
+    /// Returns true if any field has a range set.
+    fn is_active(&self) -> bool {
+        self.gravity.is_some()
+            || self.drag_coeff.is_some()
+            || self.turn_bleed_coeff.is_some()
+            || self.max_speed.is_some()
+            || self.min_speed.is_some()
+            || self.max_thrust.is_some()
+            || self.bullet_speed.is_some()
+            || self.gun_cooldown_ticks.is_some()
+            || self.bullet_lifetime_ticks.is_some()
+            || self.max_hp.is_some()
+            || self.max_turn_rate.is_some()
+            || self.min_turn_rate.is_some()
+            || self.rear_aspect_cone.is_some()
+    }
+
+    /// Sample a SimConfig from the ranges. Unset fields use defaults.
+    fn sample(&self, rng: &mut Pcg64) -> SimConfig {
+        let d = SimConfig::default();
+        SimConfig {
+            gravity: self.gravity.map_or(d.gravity, |(lo, hi)| rng.gen_range(lo..=hi)),
+            drag_coeff: self.drag_coeff.map_or(d.drag_coeff, |(lo, hi)| rng.gen_range(lo..=hi)),
+            turn_bleed_coeff: self.turn_bleed_coeff.map_or(d.turn_bleed_coeff, |(lo, hi)| rng.gen_range(lo..=hi)),
+            max_speed: self.max_speed.map_or(d.max_speed, |(lo, hi)| rng.gen_range(lo..=hi)),
+            min_speed: self.min_speed.map_or(d.min_speed, |(lo, hi)| rng.gen_range(lo..=hi)),
+            max_thrust: self.max_thrust.map_or(d.max_thrust, |(lo, hi)| rng.gen_range(lo..=hi)),
+            bullet_speed: self.bullet_speed.map_or(d.bullet_speed, |(lo, hi)| rng.gen_range(lo..=hi)),
+            gun_cooldown_ticks: self.gun_cooldown_ticks.map_or(d.gun_cooldown_ticks, |(lo, hi)| rng.gen_range(lo..=hi)),
+            bullet_lifetime_ticks: self.bullet_lifetime_ticks.map_or(d.bullet_lifetime_ticks, |(lo, hi)| rng.gen_range(lo..=hi)),
+            max_hp: self.max_hp.map_or(d.max_hp, |(lo, hi)| rng.gen_range(lo..=hi)),
+            max_turn_rate: self.max_turn_rate.map_or(d.max_turn_rate, |(lo, hi)| rng.gen_range(lo..=hi)),
+            min_turn_rate: self.min_turn_rate.map_or(d.min_turn_rate, |(lo, hi)| rng.gen_range(lo..=hi)),
+            rear_aspect_cone: self.rear_aspect_cone.map_or(d.rear_aspect_cone, |(lo, hi)| rng.gen_range(lo..=hi)),
+        }
+    }
+
+    /// Parse from a Python dict: {"gravity": (60.0, 100.0), "bullet_speed": (350.0, 450.0), ...}
+    fn from_py_dict(dict: &Bound<'_, PyDict>) -> PyResult<Self> {
+        let mut ranges = Self::default();
+        for (key, value) in dict.iter() {
+            let key: String = key.extract()?;
+            match key.as_str() {
+                "gravity" => ranges.gravity = Some(value.extract()?),
+                "drag_coeff" => ranges.drag_coeff = Some(value.extract()?),
+                "turn_bleed_coeff" => ranges.turn_bleed_coeff = Some(value.extract()?),
+                "max_speed" => ranges.max_speed = Some(value.extract()?),
+                "min_speed" => ranges.min_speed = Some(value.extract()?),
+                "max_thrust" => ranges.max_thrust = Some(value.extract()?),
+                "bullet_speed" => ranges.bullet_speed = Some(value.extract()?),
+                "gun_cooldown_ticks" => ranges.gun_cooldown_ticks = Some(value.extract()?),
+                "bullet_lifetime_ticks" => ranges.bullet_lifetime_ticks = Some(value.extract()?),
+                "max_hp" => ranges.max_hp = Some(value.extract()?),
+                "max_turn_rate" => ranges.max_turn_rate = Some(value.extract()?),
+                "min_turn_rate" => ranges.min_turn_rate = Some(value.extract()?),
+                "rear_aspect_cone" => ranges.rear_aspect_cone = Some(value.extract()?),
+                other => {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "unknown SimConfig parameter: {other}"
+                    )));
+                }
+            }
+        }
+        Ok(ranges)
     }
 }
 
@@ -334,6 +425,7 @@ struct EnvInstance {
     state: SimState,
     opponent: Box<dyn Policy>,
     opponent_name: String,
+    config: SimConfig,
     tick: u32,
     prev_my_hp: u8,
     prev_opp_hp: u8,
@@ -351,27 +443,29 @@ struct StepResult {
 }
 
 impl EnvInstance {
-    fn new(opponent_name: &str, seed: u64, randomize: bool) -> Self {
-        let state = SimState::new_with_seed(seed, randomize);
+    fn new(opponent_name: &str, seed: u64, randomize: bool, config: SimConfig) -> Self {
+        let state = SimState::new_with_seed_and_config(seed, randomize, config);
         let dist = (state.fighters[0].position - state.fighters[1].position).length();
         Self {
             state,
-            opponent: make_policy(opponent_name),
+            opponent: make_policy_with_config(opponent_name, config),
             opponent_name: opponent_name.to_string(),
+            config,
             tick: 0,
-            prev_my_hp: MAX_HP,
-            prev_opp_hp: MAX_HP,
+            prev_my_hp: config.max_hp,
+            prev_opp_hp: config.max_hp,
             prev_distance: dist,
         }
     }
 
-    fn reset(&mut self, opponent_name: &str, seed: u64, randomize: bool) -> [f32; OBS_SIZE] {
-        self.state = SimState::new_with_seed(seed, randomize);
-        self.opponent = make_policy(opponent_name);
+    fn reset(&mut self, opponent_name: &str, seed: u64, randomize: bool, config: SimConfig) -> [f32; OBS_SIZE] {
+        self.config = config;
+        self.state = SimState::new_with_seed_and_config(seed, randomize, config);
+        self.opponent = make_policy_with_config(opponent_name, config);
         self.opponent_name = opponent_name.to_string();
         self.tick = 0;
-        self.prev_my_hp = MAX_HP;
-        self.prev_opp_hp = MAX_HP;
+        self.prev_my_hp = config.max_hp;
+        self.prev_opp_hp = config.max_hp;
         self.prev_distance =
             (self.state.fighters[0].position - self.state.fighters[1].position).length();
 
@@ -509,6 +603,7 @@ struct BatchEnv {
     action_repeat: u32,
     weights: RewardWeights,
     rng: Pcg64,
+    config_ranges: SimConfigRanges,
 }
 
 #[pymethods]
@@ -528,11 +623,12 @@ impl BatchEnv {
         }
 
         let mut rng = Pcg64::seed_from_u64(seed);
+        let default_config = SimConfig::default();
         let envs: Vec<EnvInstance> = (0..n_envs)
             .map(|_| {
                 let opp_idx = rng.gen_range(0..opponent_pool.len());
                 let env_seed = rng.gen::<u64>();
-                EnvInstance::new(&opponent_pool[opp_idx], env_seed, randomize_spawns)
+                EnvInstance::new(&opponent_pool[opp_idx], env_seed, randomize_spawns, default_config)
             })
             .collect();
 
@@ -544,6 +640,7 @@ impl BatchEnv {
             action_repeat: action_repeat.max(1),
             weights: RewardWeights::default(),
             rng,
+            config_ranges: SimConfigRanges::default(),
         })
     }
 
@@ -596,11 +693,16 @@ impl BatchEnv {
     /// Reset all environments. Returns obs as numpy array (n_envs, OBS_SIZE).
     fn reset<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyArray2<f32>> {
         // Generate reset params sequentially (RNG is not Send)
-        let params: Vec<(String, u64)> = (0..self.n_envs)
+        let params: Vec<(String, u64, SimConfig)> = (0..self.n_envs)
             .map(|_| {
                 let opp_idx = self.rng.gen_range(0..self.opponent_pool.len());
                 let seed = self.rng.gen::<u64>();
-                (self.opponent_pool[opp_idx].clone(), seed)
+                let config = if self.config_ranges.is_active() {
+                    self.config_ranges.sample(&mut self.rng)
+                } else {
+                    SimConfig::default()
+                };
+                (self.opponent_pool[opp_idx].clone(), seed, config)
             })
             .collect();
 
@@ -610,8 +712,8 @@ impl BatchEnv {
         let obs_arrays: Vec<[f32; OBS_SIZE]> = self.envs
             .par_iter_mut()
             .zip(params.into_par_iter())
-            .map(|(env, (opp_name, seed))| {
-                env.reset(&opp_name, seed, randomize)
+            .map(|(env, (opp_name, seed, config))| {
+                env.reset(&opp_name, seed, randomize, config)
             })
             .collect();
 
@@ -674,13 +776,18 @@ impl BatchEnv {
             .collect();
 
         // Generate reset params for any done envs (sequential, needs RNG)
-        let reset_params: Vec<Option<(String, u64)>> = results
+        let reset_params: Vec<Option<(String, u64, SimConfig)>> = results
             .iter()
             .map(|r| {
                 if r.done {
                     let opp_idx = self.rng.gen_range(0..self.opponent_pool.len());
                     let seed = self.rng.gen::<u64>();
-                    Some((self.opponent_pool[opp_idx].clone(), seed))
+                    let config = if self.config_ranges.is_active() {
+                        self.config_ranges.sample(&mut self.rng)
+                    } else {
+                        SimConfig::default()
+                    };
+                    Some((self.opponent_pool[opp_idx].clone(), seed, config))
                 } else {
                     None
                 }
@@ -693,8 +800,8 @@ impl BatchEnv {
             .par_iter_mut()
             .zip(reset_params.into_par_iter())
             .map(|(env, params)| {
-                if let Some((opp_name, seed)) = params {
-                    Some(env.reset(&opp_name, seed, randomize))
+                if let Some((opp_name, seed, config)) = params {
+                    Some(env.reset(&opp_name, seed, randomize, config))
                 } else {
                     None
                 }
@@ -765,6 +872,20 @@ impl BatchEnv {
     #[setter]
     fn set_action_repeat(&mut self, value: u32) {
         self.action_repeat = value.max(1);
+    }
+
+    /// Set domain randomization ranges. Pass a dict of parameter name → (min, max) tuples.
+    /// Only specified parameters are randomized; unspecified ones use defaults.
+    /// Pass an empty dict to disable domain randomization.
+    ///
+    /// Example:
+    ///     env.set_domain_randomization({
+    ///         "gravity": (60.0, 100.0),
+    ///         "bullet_speed": (350.0, 450.0),
+    ///     })
+    fn set_domain_randomization(&mut self, ranges: &Bound<'_, PyDict>) -> PyResult<()> {
+        self.config_ranges = SimConfigRanges::from_py_dict(ranges)?;
+        Ok(())
     }
 }
 
@@ -856,20 +977,18 @@ enum EnvMode {
     /// P1 actions are computed internally by a scripted Rust policy.
     Scripted {
         opponent: Box<dyn Policy>,
-        name: String,
     },
 }
 
 /// Helper: create an EnvMode based on scripted fraction and pool.
-fn make_env_mode(rng: &mut Pcg64, scripted_fraction: f64, scripted_pool: &[String]) -> EnvMode {
+fn make_env_mode(rng: &mut Pcg64, scripted_fraction: f64, scripted_pool: &[String], config: SimConfig) -> EnvMode {
     if scripted_pool.is_empty() || scripted_fraction <= 0.0 {
         return EnvMode::Neural;
     }
     if rng.gen::<f64>() < scripted_fraction {
         let idx = rng.gen_range(0..scripted_pool.len());
         EnvMode::Scripted {
-            opponent: make_policy(&scripted_pool[idx]),
-            name: scripted_pool[idx].clone(),
+            opponent: make_policy_with_config(&scripted_pool[idx], config),
         }
     } else {
         EnvMode::Neural
@@ -880,6 +999,7 @@ fn make_env_mode(rng: &mut Pcg64, scripted_fraction: f64, scripted_pool: &[Strin
 /// Supports optional scripted P1 opponent (for anchoring against scripted bots).
 struct SelfPlayEnvInstance {
     state: SimState,
+    config: SimConfig,
     tick: u32,
     mode: EnvMode,
     // Player 0 reward tracking
@@ -905,32 +1025,34 @@ struct SelfPlayStepResult {
 }
 
 impl SelfPlayEnvInstance {
-    fn new(seed: u64, randomize: bool, mode: EnvMode) -> Self {
-        let state = SimState::new_with_seed(seed, randomize);
+    fn new(seed: u64, randomize: bool, mode: EnvMode, config: SimConfig) -> Self {
+        let state = SimState::new_with_seed_and_config(seed, randomize, config);
         let dist = (state.fighters[0].position - state.fighters[1].position).length();
         Self {
             state,
+            config,
             tick: 0,
             mode,
-            p0_prev_hp: MAX_HP,
-            p0_prev_opp_hp: MAX_HP,
+            p0_prev_hp: config.max_hp,
+            p0_prev_opp_hp: config.max_hp,
             p0_prev_distance: dist,
-            p1_prev_hp: MAX_HP,
-            p1_prev_opp_hp: MAX_HP,
+            p1_prev_hp: config.max_hp,
+            p1_prev_opp_hp: config.max_hp,
             p1_prev_distance: dist,
         }
     }
 
-    fn reset(&mut self, seed: u64, randomize: bool, new_mode: EnvMode) -> ([f32; OBS_SIZE], [f32; OBS_SIZE]) {
-        self.state = SimState::new_with_seed(seed, randomize);
+    fn reset(&mut self, seed: u64, randomize: bool, new_mode: EnvMode, config: SimConfig) -> ([f32; OBS_SIZE], [f32; OBS_SIZE]) {
+        self.config = config;
+        self.state = SimState::new_with_seed_and_config(seed, randomize, config);
         self.mode = new_mode;
         let dist = (self.state.fighters[0].position - self.state.fighters[1].position).length();
         self.tick = 0;
-        self.p0_prev_hp = MAX_HP;
-        self.p0_prev_opp_hp = MAX_HP;
+        self.p0_prev_hp = config.max_hp;
+        self.p0_prev_opp_hp = config.max_hp;
         self.p0_prev_distance = dist;
-        self.p1_prev_hp = MAX_HP;
-        self.p1_prev_opp_hp = MAX_HP;
+        self.p1_prev_hp = config.max_hp;
+        self.p1_prev_opp_hp = config.max_hp;
         self.p1_prev_distance = dist;
 
         let obs_p0 = self.state.observe(0).data;
@@ -1074,6 +1196,7 @@ struct SelfPlayBatchEnv {
     rng: Pcg64,
     scripted_fraction: f64,
     scripted_pool: Vec<String>,
+    config_ranges: SimConfigRanges,
 }
 
 #[pymethods]
@@ -1082,10 +1205,11 @@ impl SelfPlayBatchEnv {
     #[pyo3(signature = (n_envs, randomize_spawns=true, seed=0, action_repeat=1))]
     fn new(n_envs: usize, randomize_spawns: bool, seed: u64, action_repeat: u32) -> Self {
         let mut rng = Pcg64::seed_from_u64(seed);
+        let default_config = SimConfig::default();
         let envs: Vec<SelfPlayEnvInstance> = (0..n_envs)
             .map(|_| {
                 let env_seed = rng.gen::<u64>();
-                SelfPlayEnvInstance::new(env_seed, randomize_spawns, EnvMode::Neural)
+                SelfPlayEnvInstance::new(env_seed, randomize_spawns, EnvMode::Neural, default_config)
             })
             .collect();
 
@@ -1098,6 +1222,7 @@ impl SelfPlayBatchEnv {
             rng,
             scripted_fraction: 0.0,
             scripted_pool: Vec::new(),
+            config_ranges: SimConfigRanges::default(),
         }
     }
 
@@ -1139,11 +1264,16 @@ impl SelfPlayBatchEnv {
         py: Python<'py>,
     ) -> (Bound<'py, PyArray2<f32>>, Bound<'py, PyArray2<f32>>) {
         // Generate reset seeds and modes sequentially (RNG is not Send)
-        let params: Vec<(u64, EnvMode)> = (0..self.n_envs)
+        let params: Vec<(u64, EnvMode, SimConfig)> = (0..self.n_envs)
             .map(|_| {
                 let seed = self.rng.gen::<u64>();
-                let mode = make_env_mode(&mut self.rng, self.scripted_fraction, &self.scripted_pool);
-                (seed, mode)
+                let config = if self.config_ranges.is_active() {
+                    self.config_ranges.sample(&mut self.rng)
+                } else {
+                    SimConfig::default()
+                };
+                let mode = make_env_mode(&mut self.rng, self.scripted_fraction, &self.scripted_pool, config);
+                (seed, mode, config)
             })
             .collect();
 
@@ -1153,7 +1283,7 @@ impl SelfPlayBatchEnv {
         let obs_pairs: Vec<([f32; OBS_SIZE], [f32; OBS_SIZE])> = self.envs
             .par_iter_mut()
             .zip(params.into_par_iter())
-            .map(|(env, (seed, mode))| env.reset(seed, randomize, mode))
+            .map(|(env, (seed, mode, config))| env.reset(seed, randomize, mode, config))
             .collect();
 
         // Write directly into numpy buffers
@@ -1230,13 +1360,18 @@ impl SelfPlayBatchEnv {
             .collect();
 
         // Generate reset params for done envs (sequential, needs RNG)
-        let reset_params: Vec<Option<(u64, EnvMode)>> = results
+        let reset_params: Vec<Option<(u64, EnvMode, SimConfig)>> = results
             .iter()
             .map(|r| {
                 if r.done {
                     let seed = self.rng.gen::<u64>();
-                    let mode = make_env_mode(&mut self.rng, self.scripted_fraction, &self.scripted_pool);
-                    Some((seed, mode))
+                    let config = if self.config_ranges.is_active() {
+                        self.config_ranges.sample(&mut self.rng)
+                    } else {
+                        SimConfig::default()
+                    };
+                    let mode = make_env_mode(&mut self.rng, self.scripted_fraction, &self.scripted_pool, config);
+                    Some((seed, mode, config))
                 } else {
                     None
                 }
@@ -1249,7 +1384,7 @@ impl SelfPlayBatchEnv {
             .par_iter_mut()
             .zip(reset_params.into_par_iter())
             .map(|(env, params)| {
-                params.map(|(seed, mode)| env.reset(seed, randomize, mode))
+                params.map(|(seed, mode, config)| env.reset(seed, randomize, mode, config))
             })
             .collect();
 
@@ -1362,6 +1497,20 @@ impl SelfPlayBatchEnv {
     #[getter]
     fn n_scripted(&self) -> usize {
         self.envs.iter().filter(|e| e.is_scripted()).count()
+    }
+
+    /// Set domain randomization ranges. Pass a dict of parameter name → (min, max) tuples.
+    /// Only specified parameters are randomized; unspecified ones use defaults.
+    /// Pass an empty dict to disable domain randomization.
+    ///
+    /// Example:
+    ///     env.set_domain_randomization({
+    ///         "gravity": (60.0, 100.0),
+    ///         "bullet_speed": (350.0, 450.0),
+    ///     })
+    fn set_domain_randomization(&mut self, ranges: &Bound<'_, PyDict>) -> PyResult<()> {
+        self.config_ranges = SimConfigRanges::from_py_dict(ranges)?;
+        Ok(())
     }
 }
 

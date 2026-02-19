@@ -1,22 +1,17 @@
 """Evaluate a trained model against all built-in opponents."""
 
 import argparse
-import json
-import sys
-from pathlib import Path
 
 import numpy as np
 import torch
 
 from model import ActorCritic, OBS_SIZE
+from utils import EVAL_OPPONENTS
 
 try:
     from dogfight_pyenv import DogfightEnv
 except ImportError:
     raise ImportError("dogfight_pyenv not found. Build it first: make pyenv")
-
-
-OPPONENTS = ["do_nothing", "dogfighter", "chaser", "ace", "brawler"]
 
 
 def evaluate(model_path: str, n_matches: int = 50, randomize: bool = True,
@@ -32,7 +27,7 @@ def evaluate(model_path: str, n_matches: int = 50, randomize: bool = True,
     print(f"{'Opponent':<14} {'Wins':>6} {'Draws':>6} {'Losses':>6} {'Win%':>8} {'Avg HP':>8}")
     print("-" * 56)
 
-    for opp_name in OPPONENTS:
+    for opp_name in EVAL_OPPONENTS:
         wins, draws, losses = 0, 0, 0
         total_hp = 0
 

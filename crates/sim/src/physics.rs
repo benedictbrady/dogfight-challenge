@@ -11,6 +11,7 @@ pub struct SimState {
     pub bullets: Vec<Bullet>,
     pub tick: u32,
     pub stats: MatchStats,
+    pub config: SimConfig,
 }
 
 impl SimState {
@@ -18,22 +19,27 @@ impl SimState {
     pub const SPAWN_SPEED: f32 = 50.0;
 
     pub fn new() -> Self {
+        Self::new_with_config(SimConfig::default())
+    }
+
+    pub fn new_with_config(config: SimConfig) -> Self {
+        let hp = config.max_hp;
         Self {
             fighters: [
                 FighterState {
                     position: Vec2::new(-200.0, 300.0),
-                    yaw: 0.0, // facing right
+                    yaw: 0.0,
                     speed: Self::SPAWN_SPEED,
-                    hp: MAX_HP,
+                    hp,
                     gun_cooldown_ticks: 0,
                     alive: true,
                     stall_ticks: 0,
                 },
                 FighterState {
                     position: Vec2::new(200.0, 300.0),
-                    yaw: std::f32::consts::PI, // facing left
+                    yaw: std::f32::consts::PI,
                     speed: Self::SPAWN_SPEED,
-                    hp: MAX_HP,
+                    hp,
                     gun_cooldown_ticks: 0,
                     alive: true,
                     stall_ticks: 0,
@@ -42,29 +48,35 @@ impl SimState {
             bullets: Vec::new(),
             tick: 0,
             stats: MatchStats {
-                p0_hp: MAX_HP,
-                p1_hp: MAX_HP,
+                p0_hp: hp,
+                p1_hp: hp,
                 p0_hits: 0,
                 p1_hits: 0,
                 p0_shots: 0,
                 p1_shots: 0,
             },
+            config,
         }
     }
 
     pub fn new_with_seed(seed: u64, randomize: bool) -> Self {
+        Self::new_with_seed_and_config(seed, randomize, SimConfig::default())
+    }
+
+    pub fn new_with_seed_and_config(seed: u64, randomize: bool, config: SimConfig) -> Self {
         if !randomize {
-            return Self::new();
+            return Self::new_with_config(config);
         }
 
+        let hp = config.max_hp;
         let mut rng = Pcg64::seed_from_u64(seed);
         let x_offset = rng.gen_range(100.0..300.0f32);
         let alt0 = rng.gen_range(150.0..450.0f32);
         let alt1 = rng.gen_range(150.0..450.0f32);
         let yaw0 = rng.gen_range(-std::f32::consts::PI..std::f32::consts::PI);
         let yaw1 = rng.gen_range(-std::f32::consts::PI..std::f32::consts::PI);
-        let speed0 = rng.gen_range((MIN_SPEED + 15.0)..80.0f32);
-        let speed1 = rng.gen_range((MIN_SPEED + 15.0)..80.0f32);
+        let speed0 = rng.gen_range((config.min_speed + 15.0)..80.0f32);
+        let speed1 = rng.gen_range((config.min_speed + 15.0)..80.0f32);
 
         Self {
             fighters: [
@@ -72,7 +84,7 @@ impl SimState {
                     position: Vec2::new(-x_offset, alt0),
                     yaw: yaw0,
                     speed: speed0,
-                    hp: MAX_HP,
+                    hp,
                     gun_cooldown_ticks: 0,
                     alive: true,
                     stall_ticks: 0,
@@ -81,7 +93,7 @@ impl SimState {
                     position: Vec2::new(x_offset, alt1),
                     yaw: yaw1,
                     speed: speed1,
-                    hp: MAX_HP,
+                    hp,
                     gun_cooldown_ticks: 0,
                     alive: true,
                     stall_ticks: 0,
@@ -90,13 +102,14 @@ impl SimState {
             bullets: Vec::new(),
             tick: 0,
             stats: MatchStats {
-                p0_hp: MAX_HP,
-                p1_hp: MAX_HP,
+                p0_hp: hp,
+                p1_hp: hp,
                 p0_hits: 0,
                 p1_hits: 0,
                 p0_shots: 0,
                 p1_shots: 0,
             },
+            config,
         }
     }
 
@@ -160,9 +173,9 @@ impl SimState {
     }
 
     fn step_fighter(&mut self, idx: usize, action: &Action) {
+        let cfg = self.config;
         let f = &mut self.fighters[idx];
 
-        // --- Stall handling ---
         if f.stall_ticks > 0 {
             f.stall_ticks -= 1;
 
@@ -179,9 +192,9 @@ impl SimState {
             f.yaw = normalize_angle(f.yaw);
 
             // Only gravity and drag during stall (no thrust, no yaw input)
-            f.speed += (-GRAVITY * f.yaw.sin()) * DT;
-            f.speed -= DRAG_COEFF * f.speed * DT;
-            f.speed = f.speed.clamp(MIN_SPEED, effective_max_speed(f.hp));
+            f.speed += (-cfg.gravity * f.yaw.sin()) * DT;
+            f.speed -= cfg.drag_coeff * f.speed * DT;
+            f.speed = f.speed.clamp(cfg.min_speed, cfg_effective_max_speed(&cfg, f.hp));
 
             // Early recovery: if speed recovers above STALL_SPEED + 10, clear stall
             if f.speed > STALL_SPEED + 10.0 {
@@ -202,16 +215,12 @@ impl SimState {
             return;
         }
 
-        // --- Stall entry check ---
         if f.speed < STALL_SPEED {
             f.stall_ticks = STALL_RECOVERY_TICKS;
             return;
         }
 
-        // --- Normal flight ---
-
-        // Compute turn rate at current speed (with damage penalty)
-        let turn_rate = effective_turn_rate(f.speed, f.hp);
+        let turn_rate = cfg_effective_turn_rate(&cfg, f.speed, f.hp);
 
         // Apply yaw
         let yaw_delta = action.yaw_input.clamp(-1.0, 1.0) * turn_rate * DT;
@@ -219,17 +228,17 @@ impl SimState {
         f.yaw = normalize_angle(f.yaw);
 
         // Energy bleed from turning
-        f.speed -= TURN_BLEED_COEFF * yaw_delta.abs() * f.speed;
+        f.speed -= cfg.turn_bleed_coeff * yaw_delta.abs() * f.speed;
 
         // Thrust and drag
         let throttle = action.throttle.clamp(0.0, 1.0);
-        f.speed += (throttle * MAX_THRUST - DRAG_COEFF * f.speed) * DT;
+        f.speed += (throttle * cfg.max_thrust - cfg.drag_coeff * f.speed) * DT;
 
         // Gravity: climbing (sin>0) costs speed, diving (sin<0) gains speed
-        f.speed += (-GRAVITY * f.yaw.sin()) * DT;
+        f.speed += (-cfg.gravity * f.yaw.sin()) * DT;
 
         // Clamp speed (with damage penalty on max)
-        f.speed = f.speed.clamp(MIN_SPEED, effective_max_speed(f.hp));
+        f.speed = f.speed.clamp(cfg.min_speed, cfg_effective_max_speed(&cfg, f.hp));
 
         // Compute forward vector and integrate position
         let forward = f.forward();
@@ -245,20 +254,20 @@ impl SimState {
 
         // Spawn bullet if shooting
         if action.shoot && f.gun_cooldown_ticks == 0 {
-            let velocity = forward * BULLET_SPEED;
+            let velocity = forward * cfg.bullet_speed;
             let spawn_pos = f.position + forward * (FIGHTER_RADIUS + BULLET_RADIUS + 1.0);
             self.bullets.push(Bullet {
                 position: spawn_pos,
                 velocity,
                 owner: idx,
-                ticks_remaining: BULLET_LIFETIME_TICKS,
+                ticks_remaining: cfg.bullet_lifetime_ticks,
             });
-            f.gun_cooldown_ticks = GUN_COOLDOWN_TICKS;
+            f.gun_cooldown_ticks = cfg.gun_cooldown_ticks;
 
             match idx {
                 0 => self.stats.p0_shots += 1,
                 1 => self.stats.p1_shots += 1,
-                _ => {}
+                _ => unreachable!(),
             }
         }
     }
@@ -275,6 +284,7 @@ impl SimState {
     fn check_collisions(&mut self) {
         let collision_dist = FIGHTER_RADIUS + BULLET_RADIUS;
         let collision_dist_sq = collision_dist * collision_dist;
+        let rear_aspect_cos = self.config.rear_aspect_cone.cos();
 
         for bullet in &mut self.bullets {
             if bullet.ticks_remaining == 0 {
@@ -296,9 +306,9 @@ impl SimState {
                     // Consume bullet regardless
                     bullet.ticks_remaining = 0;
 
-                    // If bullet is from behind (dot > cos(REAR_ASPECT_CONE)),
+                    // If bullet is from behind (dot > cos(rear_aspect_cone)),
                     // it glances off — no damage, no hit stat
-                    if dot > REAR_ASPECT_CONE.cos() {
+                    if dot > rear_aspect_cos {
                         break;
                     }
 
@@ -310,7 +320,7 @@ impl SimState {
                     match bullet.owner {
                         0 => self.stats.p0_hits += 1,
                         1 => self.stats.p1_hits += 1,
-                        _ => {}
+                        _ => unreachable!(),
                     }
                     break;
                 }
@@ -319,18 +329,37 @@ impl SimState {
     }
 }
 
+/// Config-aware turn rate at speed.
+fn cfg_turn_rate_at_speed(cfg: &SimConfig, speed: f32) -> f32 {
+    let t = ((speed - cfg.min_speed) / (cfg.max_speed - cfg.min_speed)).clamp(0.0, 1.0);
+    cfg.max_turn_rate + t * (cfg.min_turn_rate - cfg.max_turn_rate)
+}
+
+/// Config-aware effective max speed accounting for damage.
+fn cfg_effective_max_speed(cfg: &SimConfig, hp: u8) -> f32 {
+    cfg.max_speed * (1.0 - DAMAGE_SPEED_PENALTY * (cfg.max_hp - hp) as f32)
+}
+
+/// Config-aware effective turn rate accounting for speed and damage.
+fn cfg_effective_turn_rate(cfg: &SimConfig, speed: f32, hp: u8) -> f32 {
+    cfg_turn_rate_at_speed(cfg, speed) * (1.0 - DAMAGE_TURN_PENALTY * (cfg.max_hp - hp) as f32)
+}
+
 /// Compute turn rate based on speed (higher speed = lower turn rate).
+/// Uses default config values — kept for external callers and tests.
 pub fn turn_rate_at_speed(speed: f32) -> f32 {
     let t = ((speed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED)).clamp(0.0, 1.0);
     MAX_TURN_RATE + t * (MIN_TURN_RATE - MAX_TURN_RATE)
 }
 
 /// Effective max speed accounting for damage.
+/// Uses default config values — kept for external callers and tests.
 pub fn effective_max_speed(hp: u8) -> f32 {
     MAX_SPEED * (1.0 - DAMAGE_SPEED_PENALTY * (MAX_HP - hp) as f32)
 }
 
 /// Effective turn rate accounting for speed and damage.
+/// Uses default config values — kept for external callers and tests.
 pub fn effective_turn_rate(speed: f32, hp: u8) -> f32 {
     turn_rate_at_speed(speed) * (1.0 - DAMAGE_TURN_PENALTY * (MAX_HP - hp) as f32)
 }

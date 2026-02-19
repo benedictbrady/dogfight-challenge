@@ -17,21 +17,21 @@ impl SimState {
         let them = &self.fighters[opp];
 
         // SELF STATE (6 floats)
-        data[0] = me.speed / MAX_SPEED;
+        data[0] = me.speed / self.config.max_speed;
         data[1] = me.yaw.cos();
         data[2] = me.yaw.sin();
-        data[3] = me.hp as f32 / MAX_HP as f32;
-        data[4] = me.gun_cooldown_ticks as f32 / GUN_COOLDOWN_TICKS as f32;
+        data[3] = me.hp as f32 / self.config.max_hp as f32;
+        data[4] = me.gun_cooldown_ticks as f32 / self.config.gun_cooldown_ticks as f32;
         data[5] = me.position.y / MAX_ALTITUDE;
 
         // OPPONENT STATE (7 floats)
         let rel = them.position - me.position;
         data[6] = rel.x / ARENA_DIAMETER;
         data[7] = rel.y / ARENA_DIAMETER;
-        data[8] = them.speed / MAX_SPEED;
+        data[8] = them.speed / self.config.max_speed;
         data[9] = them.yaw.cos();
         data[10] = them.yaw.sin();
-        data[11] = them.hp as f32 / MAX_HP as f32;
+        data[11] = them.hp as f32 / self.config.max_hp as f32;
         data[12] = rel.length() / ARENA_DIAMETER;
 
         // BULLETS (8 slots × 4 floats = 32 floats, sorted by distance to self)

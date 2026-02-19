@@ -20,6 +20,7 @@ enum BrawlerPhase {
 /// forces overshoots, then punishes. Beats Ace (jinks disrupt dive windows),
 /// loses to Chaser (constant pressure prevents settling into turn fight).
 pub struct BrawlerPolicy {
+    config: SimConfig,
     phase: BrawlerPhase,
     phase_timer: u32,
     jink_timer: u32,
@@ -29,7 +30,12 @@ pub struct BrawlerPolicy {
 
 impl BrawlerPolicy {
     pub fn new() -> Self {
+        Self::with_config(SimConfig::default())
+    }
+
+    pub fn with_config(config: SimConfig) -> Self {
         Self {
+            config,
             phase: BrawlerPhase::Close,
             phase_timer: 0,
             jink_timer: 0,
@@ -51,7 +57,7 @@ impl Policy for BrawlerPolicy {
     }
 
     fn act(&mut self, obs: &Observation) -> Action {
-        let ts = extract_tactical_state(obs);
+        let ts = extract_tactical_state_with_config(obs, &self.config);
 
         // Emergency altitude override
         if let Some(yaw_input) = altitude_safety(ts.altitude, ts.my_yaw) {
@@ -155,23 +161,16 @@ impl BrawlerPolicy {
         }
     }
 
-    /// Close phase: full speed, lead pursuit (crossing when behind), get into knife-fight range
     fn act_close(&self, ts: &TacticalState) -> Action {
-        let desired_yaw = if ts.am_behind_opponent {
-            crossing_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
-        } else {
-            lead_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 1.0)
-        };
+        let desired_yaw = smart_aim(ts, &self.config, 1.0);
         let mut yaw_input = yaw_toward(desired_yaw, ts.my_yaw, 3.0);
 
-        // Altitude nudge during approach
         if ts.altitude < 120.0 && ts.my_yaw.sin() < 0.0 {
             yaw_input += 0.3;
             yaw_input = yaw_input.clamp(-1.0, 1.0);
         }
 
-        let shoot = ts.angle_off_nose.abs() < 0.25 && ts.distance < 300.0 && ts.gun_cooldown < 0.01
-            && !ts.would_be_rear_aspect_shot;
+        let shoot = can_shoot(ts, 0.25, 300.0);
 
         let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
         let throttle = 1.0f32.max(min_throttle);
@@ -183,21 +182,14 @@ impl BrawlerPolicy {
         }
     }
 
-    /// Brawl phase: slow down for maximum turn rate, snap-shoot at wide angle
     fn act_brawl(&self, ts: &TacticalState) -> Action {
-        let desired_yaw = if ts.am_behind_opponent {
-            crossing_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 0.7)
-        } else {
-            lead_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 0.7)
-        };
+        let desired_yaw = smart_aim(ts, &self.config, 0.7);
         let mut yaw_input = yaw_toward(desired_yaw, ts.my_yaw, 4.0);
 
-        // Apply defensive jink if active
         if self.jink_timer > 0 {
             yaw_input = self.jink_dir;
         }
 
-        // Throttle: stay slow for max turn rate, but above stall zone
         let throttle: f32 = if ts.my_speed > 120.0 {
             0.0
         } else if ts.my_speed < 70.0 {
@@ -206,9 +198,7 @@ impl BrawlerPolicy {
             0.2
         };
 
-        // Wide shoot angle — range is short so bullets still connect (skip rear-aspect)
-        let shoot = ts.angle_off_nose.abs() < 0.30 && ts.distance < 250.0 && ts.gun_cooldown < 0.01
-            && !ts.would_be_rear_aspect_shot;
+        let shoot = can_shoot(ts, 0.30, 250.0);
 
         let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
         let throttle = throttle.max(min_throttle);
@@ -220,14 +210,11 @@ impl BrawlerPolicy {
         }
     }
 
-    /// Overshoot bait: throttle zero, slight jinking, wait for opponent to fly past
     fn act_overshoot_bait(&self, ts: &TacticalState) -> Action {
-        // Turn slightly perpendicular to opponent's approach
         let perp_yaw = ts.angle_to_opp + std::f32::consts::FRAC_PI_2 * self.jink_dir;
         let yaw_input = yaw_toward(perp_yaw, ts.my_yaw, 2.0);
 
-        let shoot = ts.angle_off_nose.abs() < 0.35 && ts.distance < 200.0 && ts.gun_cooldown < 0.01
-            && !ts.would_be_rear_aspect_shot;
+        let shoot = can_shoot(ts, 0.35, 200.0);
 
         let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
 
@@ -238,18 +225,11 @@ impl BrawlerPolicy {
         }
     }
 
-    /// Overshoot punish: opponent overshot — full pursuit, wide angle shots
     fn act_overshoot_punish(&self, ts: &TacticalState) -> Action {
-        let desired_yaw = if ts.am_behind_opponent {
-            crossing_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 0.8)
-        } else {
-            lead_aim(ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, 0.8)
-        };
+        let desired_yaw = smart_aim(ts, &self.config, 0.8);
         let yaw_input = yaw_toward(desired_yaw, ts.my_yaw, 4.0);
 
-        // Wide shoot angle during punish — they're exposed (skip rear-aspect)
-        let shoot = ts.angle_off_nose.abs() < 0.35 && ts.distance < 300.0 && ts.gun_cooldown < 0.01
-            && !ts.would_be_rear_aspect_shot;
+        let shoot = can_shoot(ts, 0.35, 300.0);
 
         let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, yaw_input);
         let throttle = 0.5f32.max(min_throttle);
@@ -261,9 +241,7 @@ impl BrawlerPolicy {
         }
     }
 
-    /// Retreat: low energy, climb to recover
     fn act_retreat(&self, ts: &TacticalState) -> Action {
-        // Climb at moderate angle
         let climb_yaw = if ts.my_yaw.cos() > 0.0 { 0.5 } else { std::f32::consts::PI - 0.5 };
         let yaw_input = yaw_toward(climb_yaw, ts.my_yaw, 2.0);
 

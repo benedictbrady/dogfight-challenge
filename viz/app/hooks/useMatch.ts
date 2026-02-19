@@ -46,6 +46,11 @@ export interface MatchConfig {
   randomize_spawns?: boolean;
 }
 
+const OUTCOME_TO_WINNER: Record<string, number | null> = {
+  Player0Win: 0,
+  Player1Win: 1,
+};
+
 // --- Hook ---
 
 export function useMatch() {
@@ -130,9 +135,7 @@ export function useMatch() {
             return [...prev, frame];
           });
         } else if (msg.type === "result") {
-          const winner =
-            msg.outcome === "Player0Win" ? 0 :
-            msg.outcome === "Player1Win" ? 1 : null;
+          const winner = OUTCOME_TO_WINNER[msg.outcome] ?? null;
           setMatchResult({
             winner,
             reason: msg.reason ?? "",

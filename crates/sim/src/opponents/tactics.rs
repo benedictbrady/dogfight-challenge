@@ -55,12 +55,12 @@ pub struct TacticalState {
     pub ticks_remaining_frac: f32,
 }
 
-/// Extract tactical state from raw observation.
-pub fn extract_tactical_state(obs: &Observation) -> TacticalState {
+/// Extract tactical state from raw observation using specific config for denormalization.
+pub fn extract_tactical_state_with_config(obs: &Observation, config: &SimConfig) -> TacticalState {
     let d = &obs.data;
 
-    // Self state
-    let my_speed = d[0] * MAX_SPEED;
+    // Self state (denormalize using config)
+    let my_speed = d[0] * config.max_speed;
     let my_yaw = f32::atan2(d[2], d[1]);
     let my_hp = d[3];
     let gun_cooldown = d[4];
@@ -69,7 +69,7 @@ pub fn extract_tactical_state(obs: &Observation) -> TacticalState {
     // Opponent state
     let rel_x = d[6] * ARENA_DIAMETER;
     let rel_y = d[7] * ARENA_DIAMETER;
-    let opp_speed = d[8] * MAX_SPEED;
+    let opp_speed = d[8] * config.max_speed;
     let opp_yaw = f32::atan2(d[10], d[9]);
     let opp_hp = d[11];
     let distance = d[12] * ARENA_DIAMETER;
@@ -93,9 +93,9 @@ pub fn extract_tactical_state(obs: &Observation) -> TacticalState {
     };
 
     // Energy: v^2 + 2*g*h (simplified energy proxy)
-    let my_energy = my_speed * my_speed + 2.0 * GRAVITY * altitude;
+    let my_energy = my_speed * my_speed + 2.0 * config.gravity * altitude;
     let opp_altitude = altitude + rel_y;
-    let opp_energy = opp_speed * opp_speed + 2.0 * GRAVITY * opp_altitude;
+    let opp_energy = opp_speed * opp_speed + 2.0 * config.gravity * opp_altitude;
     let energy_advantage = if opp_energy > 1.0 {
         my_energy / opp_energy
     } else {
@@ -109,8 +109,8 @@ pub fn extract_tactical_state(obs: &Observation) -> TacticalState {
     let opponent_behind_me = angle_off_nose.abs() > 2.0;
 
     // Would a bullet from me be a rear-aspect shot?
-    let would_be_rear_aspect_shot = is_rear_aspect_shot(
-        rel_x, rel_y, opp_yaw, my_yaw,
+    let would_be_rear_aspect_shot = is_rear_aspect_shot_with_config(
+        rel_x, rel_y, opp_yaw, my_yaw, config.rear_aspect_cone,
     );
 
     // Bullet threats
@@ -149,16 +149,17 @@ pub fn extract_tactical_state(obs: &Observation) -> TacticalState {
     }
 }
 
-/// Compute lead aim: predict where opponent will be and return desired yaw.
-pub fn lead_aim(
+/// Compute lead aim with specific bullet speed.
+pub fn lead_aim_with_bullet_speed(
     rel_x: f32,
     rel_y: f32,
     opp_speed: f32,
     opp_yaw: f32,
     distance: f32,
     lead_factor: f32,
+    bullet_speed: f32,
 ) -> f32 {
-    let time_to_target = distance / BULLET_SPEED;
+    let time_to_target = distance / bullet_speed;
     let opp_fwd_x = opp_yaw.cos();
     let opp_fwd_y = opp_yaw.sin();
     let lead_x = rel_x + opp_fwd_x * opp_speed * time_to_target * lead_factor;
@@ -166,17 +167,17 @@ pub fn lead_aim(
     f32::atan2(lead_y, lead_x)
 }
 
-/// Crossing aim: offset aim point perpendicular to opponent's flight path.
-/// Forces beam/crossing attacks instead of tail chases.
-pub fn crossing_aim(
+/// Crossing aim with specific bullet speed.
+pub fn crossing_aim_with_bullet_speed(
     rel_x: f32,
     rel_y: f32,
     opp_speed: f32,
     opp_yaw: f32,
     distance: f32,
     lead_factor: f32,
+    bullet_speed: f32,
 ) -> f32 {
-    let time_to_target = distance / BULLET_SPEED;
+    let time_to_target = distance / bullet_speed;
     let opp_fwd_x = opp_yaw.cos();
     let opp_fwd_y = opp_yaw.sin();
     let lead_x = rel_x + opp_fwd_x * opp_speed * time_to_target * lead_factor;
@@ -192,13 +193,13 @@ pub fn crossing_aim(
     f32::atan2(lead_y + perp_y * offset * side, lead_x + perp_x * offset * side)
 }
 
-/// Check if firing now would produce a rear-aspect shot (bullet from behind target).
-/// Uses the same dot-product check as the physics engine.
-pub fn is_rear_aspect_shot(
+/// Check if firing now would produce a rear-aspect shot with a specific cone angle.
+pub fn is_rear_aspect_shot_with_config(
     rel_x: f32,
     rel_y: f32,
     opp_yaw: f32,
     my_yaw: f32,
+    rear_aspect_cone: f32,
 ) -> bool {
     // My bullet direction = my forward vector
     let bullet_dir_x = my_yaw.cos();
@@ -217,7 +218,7 @@ pub fn is_rear_aspect_shot(
     }
 
     let dot = bullet_dir_x * opp_fwd_x + bullet_dir_y * opp_fwd_y;
-    dot > REAR_ASPECT_CONE.cos()
+    dot > rear_aspect_cone.cos()
 }
 
 /// Shortest angular difference (signed), result in [-PI, PI].
@@ -293,6 +294,29 @@ pub fn compute_bullet_threats(obs: &[f32; OBS_SIZE]) -> (f32, f32, u32) {
     (nearest_dist, nearest_angle, threat_count)
 }
 
+/// Check if the fighter can take a shot given angle, distance, cooldown, and rear-aspect constraints.
+pub fn can_shoot(ts: &TacticalState, angle_threshold: f32, distance_threshold: f32) -> bool {
+    ts.angle_off_nose.abs() < angle_threshold
+        && ts.distance < distance_threshold
+        && ts.gun_cooldown < 0.01
+        && !ts.would_be_rear_aspect_shot
+}
+
+/// Select aim mode: crossing aim when behind opponent, lead aim otherwise.
+/// Returns the desired yaw angle.
+pub fn smart_aim(ts: &TacticalState, config: &SimConfig, lead_factor: f32) -> f32 {
+    let bs = config.bullet_speed;
+    if ts.am_behind_opponent {
+        crossing_aim_with_bullet_speed(
+            ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, lead_factor, bs,
+        )
+    } else {
+        lead_aim_with_bullet_speed(
+            ts.rel_x, ts.rel_y, ts.opp_speed, ts.opp_yaw, ts.distance, lead_factor, bs,
+        )
+    }
+}
+
 /// Stall avoidance: reduce yaw input and increase throttle when approaching stall speed.
 /// Returns (adjusted_yaw_input, min_throttle).
 pub fn stall_avoidance(speed: f32, yaw_input: f32) -> (f32, f32) {
@@ -348,7 +372,7 @@ mod tests {
         use crate::physics::SimState;
         let state = SimState::new();
         let obs = state.observe(0);
-        let ts = extract_tactical_state(&obs);
+        let ts = extract_tactical_state_with_config(&obs, &SimConfig::default());
 
         // P0 at (-200,300), P1 at (200,300) — distance should be ~400
         assert!((ts.distance - 400.0).abs() < 10.0);

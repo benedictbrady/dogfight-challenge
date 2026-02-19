@@ -42,58 +42,6 @@ impl From<ort::Error> for ValidationError {
 }
 
 // ---------------------------------------------------------------------------
-// Op allowlist (for future use when graph introspection is available)
-// ---------------------------------------------------------------------------
-
-/// Allowed ONNX operator names. Any op not in this list should be rejected
-/// during model validation.
-#[allow(dead_code)]
-const ALLOWED_OPS: &[&str] = &[
-    "Add",
-    "Sub",
-    "Mul",
-    "Div",
-    "MatMul",
-    "Gemm",
-    "Relu",
-    "LeakyRelu",
-    "Sigmoid",
-    "Tanh",
-    "Softmax",
-    "Elu",
-    "Gelu",
-    "Softplus",
-    "BatchNormalization",
-    "LayerNormalization",
-    "Reshape",
-    "Flatten",
-    "Squeeze",
-    "Unsqueeze",
-    "Transpose",
-    "Concat",
-    "Gather",
-    "Shape",
-    "Slice",
-    "Conv",
-    "LSTM",
-    "GRU",
-    "Dropout",
-    "Constant",
-    "ConstantOfShape",
-    "Sqrt",
-    "Pow",
-    "Exp",
-    "Log",
-    "ReduceMean",
-    "ReduceSum",
-    "Clip",
-    "Abs",
-    "Neg",
-    "Identity",
-    "Cast",
-];
-
-// ---------------------------------------------------------------------------
 // ValidationReport
 // ---------------------------------------------------------------------------
 
@@ -194,56 +142,41 @@ fn validate_tensor_shape(
     expected_dim: i64,
     is_input: bool,
 ) -> Result<Vec<i64>, ValidationError> {
+    let shape_error = |dims: Vec<i64>| -> ValidationError {
+        if is_input {
+            ValidationError::InvalidInputShape(dims)
+        } else {
+            ValidationError::InvalidOutputShape(dims)
+        }
+    };
+
     match dtype {
         ValueType::Tensor { ty, shape, .. } => {
+            let dims: Vec<i64> = shape.iter().copied().collect();
+
             // Must be float32
             if *ty != TensorElementType::Float32 {
-                let dims: Vec<i64> = shape.iter().copied().collect();
-                return if is_input {
-                    Err(ValidationError::InvalidInputShape(dims))
-                } else {
-                    Err(ValidationError::InvalidOutputShape(dims))
-                };
+                return Err(shape_error(dims));
             }
-
-            let dims: Vec<i64> = shape.iter().copied().collect();
 
             // Must be rank 2
             if dims.len() != 2 {
-                return if is_input {
-                    Err(ValidationError::InvalidInputShape(dims))
-                } else {
-                    Err(ValidationError::InvalidOutputShape(dims))
-                };
+                return Err(shape_error(dims));
             }
 
             // Batch dim must be 1 or -1 (dynamic)
             if dims[0] != 1 && dims[0] != -1 {
-                return if is_input {
-                    Err(ValidationError::InvalidInputShape(dims))
-                } else {
-                    Err(ValidationError::InvalidOutputShape(dims))
-                };
+                return Err(shape_error(dims));
             }
 
             // Feature dim must match
             if dims[1] != expected_dim {
-                return if is_input {
-                    Err(ValidationError::InvalidInputShape(dims))
-                } else {
-                    Err(ValidationError::InvalidOutputShape(dims))
-                };
+                return Err(shape_error(dims));
             }
 
             Ok(dims)
         }
-        _ => {
-            if is_input {
-                Err(ValidationError::InvalidInputShape(vec![]))
-            } else {
-                Err(ValidationError::InvalidOutputShape(vec![]))
-            }
-        }
+        _ => Err(shape_error(vec![])),
     }
 }
 
@@ -362,8 +295,6 @@ pub fn calibrate_inference(policy: &mut OnnxPolicy) -> u32 {
     let elapsed_us = start.elapsed().as_micros() as u64;
     let mean_us = elapsed_us / CALIBRATION_RUNS as u64;
 
-    // ceil(mean_us / TICK_DURATION_US)
-    let period = (mean_us + TICK_DURATION_US - 1) / TICK_DURATION_US;
-    // Ensure at least 1
-    period.max(1) as u32
+    let period = mean_us.div_ceil(TICK_DURATION_US).max(1);
+    period as u32
 }
