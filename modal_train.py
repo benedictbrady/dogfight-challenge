@@ -355,10 +355,7 @@ def train_selfplay(config: dict) -> dict:
     print(f"=== {exp_name} (self-play) ===")
     print(f"Model: {model_cfg.get('hidden', 384)}h / {model_cfg.get('n_blocks', 3)}b")
     _slack_notify(
-        f":rocket: *{exp_name}* (self-play) started\n"
-        f"  {model_cfg.get('hidden', 384)}h/{model_cfg.get('n_blocks', 3)}b | "
-        f"{sp_cfg.get('sampling', 'pfsp')} | "
-        f"{train_cfg.get('n_envs', 256)} envs"
+        f":rocket: *{exp_name}* (self-play) started — {model_cfg.get('hidden', 384)}h/{model_cfg.get('n_blocks', 3)}b, {sp_cfg.get('sampling', 'pfsp')}, {train_cfg.get('n_envs', 256)} envs"
     )
 
     t0 = time.time()

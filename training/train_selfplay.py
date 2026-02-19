@@ -114,6 +114,18 @@ def train_selfplay(args):
             model.log_std.fill_(args.reset_std)
         print(f"Reset log_std to {args.reset_std}")
 
+    use_cuda = device.type == "cuda"
+
+    # torch.compile for faster forward passes (PyTorch 2+)
+    # model_unwrapped always points to the raw nn.Module (for save/load)
+    model_unwrapped = model
+    if use_cuda and hasattr(torch, "compile"):
+        try:
+            model = torch.compile(model)
+            print("  torch.compile enabled for learner")
+        except Exception:
+            print("  torch.compile not available, continuing without")
+
     # Initialize opponent pool
     pool = OpponentPool(
         str(pool_dir), device,
@@ -123,20 +135,10 @@ def train_selfplay(args):
 
     # Seed pool with initial checkpoint
     if pool.size == 0:
-        pool.add_checkpoint(model, "sp_0000", update_num=0)
+        pool.add_checkpoint(model_unwrapped, "sp_0000", update_num=0)
         print(f"Seeded pool with initial checkpoint")
 
     print(f"Pool: {pool.size} opponents")
-
-    use_cuda = device.type == "cuda"
-
-    # torch.compile for faster forward passes (PyTorch 2+)
-    if use_cuda and hasattr(torch, "compile"):
-        try:
-            model = torch.compile(model)
-            print("  torch.compile enabled for learner")
-        except Exception:
-            print("  torch.compile not available, continuing without")
 
     # Initialize self-play environment
     vec_env = SelfPlayBatchEnv(
@@ -195,10 +197,7 @@ def train_selfplay(args):
 
     # Slack start notification
     slack_notify(
-        f":rocket: *Self-play training started*\n"
-        f"  Model: {args.hidden}h / {args.n_blocks}b | {args.sampling} sampling\n"
-        f"  {args.n_envs} envs, {args.n_steps} steps, {args.num_updates} updates\n"
-        f"  Pool: {pool.size} opponents"
+        f":rocket: *{run_name}* started — {args.hidden}h/{args.n_blocks}b, {args.sampling}, {args.n_envs} envs, {args.num_updates} updates"
     )
 
     for update in range(args.num_updates):
@@ -446,23 +445,20 @@ def train_selfplay(args):
         if (update + 1) % 50 == 0:
             elapsed = time.time() - t_start
             slack_notify(
-                f":bar_chart: *Self-play* — update {total_updates}/{start_update + args.num_updates}\n"
-                f"  ELO: {learner_elo:.0f} | Pool: {pool.size} | "
-                f"W/L/D: {rollout_wins}/{rollout_losses}/{rollout_draws} | "
-                f"{elapsed / 60:.0f}m elapsed"
+                f":bar_chart: *{run_name}* — {total_updates}/{start_update + args.num_updates} | ELO {learner_elo:.0f} | pool {pool.size} | {elapsed / 60:.0f}m"
             )
 
         # ELO milestone notifications
         elo_bucket = int(learner_elo // 100) * 100
         if elo_bucket >= 1100 and elo_bucket not in elo_milestones_hit:
             elo_milestones_hit.add(elo_bucket)
-            slack_notify(f":trophy: *ELO milestone: {elo_bucket}!* (actual: {learner_elo:.0f})")
+            slack_notify(f":trophy: *{run_name}* ELO {elo_bucket}+ (actual: {learner_elo:.0f}) | update {total_updates} | pool {pool.size}")
 
         # Pool snapshot
         elo_jump = learner_elo - last_snapshot_elo
         if pool.should_snapshot(update + 1, args.pool_snapshot_every, elo_jump):
             name = f"sp_{total_updates:04d}"
-            pool.add_checkpoint(model, name, total_updates)
+            pool.add_checkpoint(model_unwrapped, name, total_updates)
             last_snapshot_elo = learner_elo
             print(f"  [pool] Snapshot {name} (elo {learner_elo:.0f}, pool size {pool.size})")
 
@@ -479,17 +475,15 @@ def train_selfplay(args):
 
             if brawler_wr < args.regression_threshold:
                 slack_notify(
-                    f":warning: *Regression alert!* {args.scripted_eval_opponent} "
-                    f"win rate {brawler_wr:.0%} < {args.regression_threshold:.0%} "
-                    f"at update {total_updates}"
+                    f":warning: *{run_name}* regression — {args.scripted_eval_opponent} WR {brawler_wr:.0%} < {args.regression_threshold:.0%} at update {total_updates}"
                 )
 
         # Save periodic checkpoint
         if (update + 1) % args.save_every == 0:
-            save_checkpoint(model, optimizer, global_step, total_updates, ckpt_dir, f"step_{global_step}")
+            save_checkpoint(model_unwrapped, optimizer, global_step, total_updates, ckpt_dir, f"step_{global_step}")
 
     # Final checkpoint
-    save_checkpoint(model, optimizer, global_step, total_updates, ckpt_dir, "final")
+    save_checkpoint(model_unwrapped, optimizer, global_step, total_updates, ckpt_dir, "final")
     pool.save_metadata()
     writer.close()
 
@@ -507,9 +501,7 @@ def train_selfplay(args):
     # Completion notification
     eval_summary = " | ".join(f"{k}: {v:.0%}" for k, v in final_results.items())
     slack_notify(
-        f":white_check_mark: *Self-play training complete*\n"
-        f"  ELO: {learner_elo:.0f} | Pool: {pool.size} | {elapsed / 60:.0f}m\n"
-        f"  {eval_summary}"
+        f":white_check_mark: *{run_name}* done — ELO {learner_elo:.0f} | pool {pool.size} | {elapsed / 60:.0f}m\n{eval_summary}"
     )
 
     print(f"\nTraining complete. ELO: {learner_elo:.0f}, Pool: {pool.size}")
@@ -517,10 +509,12 @@ def train_selfplay(args):
 
 
 def save_checkpoint(model, optimizer, global_step, total_updates, ckpt_dir, name):
+    # Unwrap torch.compile wrapper if present
+    raw_model = getattr(model, "_orig_mod", model)
     path = Path(ckpt_dir) / f"{name}.pt"
     torch.save(
         {
-            "model": model.state_dict(),
+            "model": raw_model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "global_step": global_step,
             "total_updates": total_updates,

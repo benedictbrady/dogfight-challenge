@@ -91,9 +91,11 @@ class OpponentPool:
         if len(self.entries) >= self.max_size:
             self._evict_least_played()
 
+        # Unwrap torch.compile wrapper if present
+        raw_model = getattr(model, "_orig_mod", model)
         filename = f"{name}.pt"
         filepath = self.pool_dir / filename
-        torch.save({"model": model.state_dict()}, filepath)
+        torch.save({"model": raw_model.state_dict()}, filepath)
 
         entry = PoolEntry(
             name=name,
