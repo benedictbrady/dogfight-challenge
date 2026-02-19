@@ -768,11 +768,514 @@ impl BatchEnv {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Self-play helpers — symmetric reward computation
+// ---------------------------------------------------------------------------
+
+/// Compute reward from the perspective of `me_idx` (0 or 1).
+///
+/// This is a standalone helper so both players can reuse the same logic with
+/// swapped indices, avoiding code duplication.
+fn compute_reward_for_player(
+    state: &SimState,
+    me_idx: usize,
+    prev_my_hp: u8,
+    prev_opp_hp: u8,
+    prev_distance: f32,
+    done: bool,
+    weights: &RewardWeights,
+) -> f32 {
+    let opp_idx = 1 - me_idx;
+    let my_hp = state.fighters[me_idx].hp;
+    let opp_hp = state.fighters[opp_idx].hp;
+    let distance = (state.fighters[me_idx].position - state.fighters[opp_idx].position).length();
+
+    let mut reward = 0.0f32;
+
+    // Damage dealt (opponent lost HP)
+    let opp_hp_delta = prev_opp_hp as f32 - opp_hp as f32;
+    reward += opp_hp_delta * weights.damage_dealt;
+
+    // Damage taken (I lost HP)
+    let my_hp_delta = prev_my_hp as f32 - my_hp as f32;
+    reward += my_hp_delta * weights.damage_taken;
+
+    // Approach reward (getting closer)
+    let dist_delta = prev_distance - distance;
+    reward += dist_delta * weights.approach;
+
+    // Alive bonus
+    if state.fighters[me_idx].alive {
+        reward += weights.alive;
+    }
+
+    // Proximity bonus (within engagement range)
+    if state.fighters[me_idx].alive && distance < 250.0 {
+        reward += weights.proximity;
+    }
+
+    // Facing reward (pointing at opponent AND within bullet range)
+    if state.fighters[me_idx].alive && distance < 300.0 && distance > 1.0 {
+        let me = &state.fighters[me_idx];
+        let rel = state.fighters[opp_idx].position - me.position;
+        let hx = me.yaw.cos();
+        let hy = me.yaw.sin();
+        let inv_dist = 1.0 / distance;
+        let dot = hx * rel.x * inv_dist + hy * rel.y * inv_dist;
+        if dot > 0.866 {
+            reward += weights.facing;
+        }
+    }
+
+    // Terminal rewards (symmetric: my win → w_win, opponent win → w_lose)
+    if done {
+        let (outcome, _reason) = state.outcome();
+        match (me_idx, outcome) {
+            (0, MatchOutcome::Player0Win) | (1, MatchOutcome::Player1Win) => {
+                reward += weights.win;
+            }
+            (0, MatchOutcome::Player1Win) | (1, MatchOutcome::Player0Win) => {
+                reward += weights.lose;
+            }
+            (_, MatchOutcome::Draw) => {} // no bonus
+            _ => unreachable!(),
+        }
+    }
+
+    reward
+}
+
+// ---------------------------------------------------------------------------
+// SelfPlayBatchEnv — both players controlled by Python
+// ---------------------------------------------------------------------------
+
+/// Per-env instance for self-play. Tracks reward state for BOTH players.
+/// No opponent policy — both players are Python-controlled, so this is Send.
+struct SelfPlayEnvInstance {
+    state: SimState,
+    tick: u32,
+    // Player 0 reward tracking
+    p0_prev_hp: u8,
+    p0_prev_opp_hp: u8,
+    p0_prev_distance: f32,
+    // Player 1 reward tracking
+    p1_prev_hp: u8,
+    p1_prev_opp_hp: u8,
+    p1_prev_distance: f32,
+}
+
+/// Result of stepping a single self-play env (plain data, no Python objects).
+struct SelfPlayStepResult {
+    obs_p0: [f32; OBS_SIZE],
+    obs_p1: [f32; OBS_SIZE],
+    reward_p0: f32,
+    reward_p1: f32,
+    done: bool,
+    outcome: String,
+    p0_hp: u8,
+    p1_hp: u8,
+}
+
+impl SelfPlayEnvInstance {
+    fn new(seed: u64, randomize: bool) -> Self {
+        let state = SimState::new_with_seed(seed, randomize);
+        let dist = (state.fighters[0].position - state.fighters[1].position).length();
+        Self {
+            state,
+            tick: 0,
+            p0_prev_hp: MAX_HP,
+            p0_prev_opp_hp: MAX_HP,
+            p0_prev_distance: dist,
+            p1_prev_hp: MAX_HP,
+            p1_prev_opp_hp: MAX_HP,
+            p1_prev_distance: dist,
+        }
+    }
+
+    fn reset(&mut self, seed: u64, randomize: bool) -> ([f32; OBS_SIZE], [f32; OBS_SIZE]) {
+        self.state = SimState::new_with_seed(seed, randomize);
+        let dist = (self.state.fighters[0].position - self.state.fighters[1].position).length();
+        self.tick = 0;
+        self.p0_prev_hp = MAX_HP;
+        self.p0_prev_opp_hp = MAX_HP;
+        self.p0_prev_distance = dist;
+        self.p1_prev_hp = MAX_HP;
+        self.p1_prev_opp_hp = MAX_HP;
+        self.p1_prev_distance = dist;
+
+        let obs_p0 = self.state.observe(0).data;
+        let obs_p1 = self.state.observe(1).data;
+        (obs_p0, obs_p1)
+    }
+
+    fn step_both(
+        &mut self,
+        p0_action: [f32; ACTION_SIZE],
+        p1_action: [f32; ACTION_SIZE],
+        weights: &RewardWeights,
+    ) -> SelfPlayStepResult {
+        let act0 = Action::from_raw(p0_action);
+        let act1 = Action::from_raw(p1_action);
+
+        // Step physics
+        self.state.step(&[act0, act1]);
+        self.tick += 1;
+
+        let done = self.state.is_terminal();
+
+        // Compute rewards from both perspectives
+        let reward_p0 = compute_reward_for_player(
+            &self.state,
+            0,
+            self.p0_prev_hp,
+            self.p0_prev_opp_hp,
+            self.p0_prev_distance,
+            done,
+            weights,
+        );
+        let reward_p1 = compute_reward_for_player(
+            &self.state,
+            1,
+            self.p1_prev_hp,
+            self.p1_prev_opp_hp,
+            self.p1_prev_distance,
+            done,
+            weights,
+        );
+
+        // Update tracking for both players
+        let distance = (self.state.fighters[0].position - self.state.fighters[1].position).length();
+        self.p0_prev_hp = self.state.fighters[0].hp;
+        self.p0_prev_opp_hp = self.state.fighters[1].hp;
+        self.p0_prev_distance = distance;
+        self.p1_prev_hp = self.state.fighters[1].hp;
+        self.p1_prev_opp_hp = self.state.fighters[0].hp;
+        self.p1_prev_distance = distance;
+
+        let outcome_str = if done {
+            let (outcome, _) = self.state.outcome();
+            match outcome {
+                MatchOutcome::Player0Win => "Player0Win",
+                MatchOutcome::Player1Win => "Player1Win",
+                MatchOutcome::Draw => "Draw",
+            }
+        } else {
+            ""
+        };
+
+        SelfPlayStepResult {
+            obs_p0: self.state.observe(0).data,
+            obs_p1: self.state.observe(1).data,
+            reward_p0,
+            reward_p1,
+            done,
+            outcome: outcome_str.to_string(),
+            p0_hp: self.state.fighters[0].hp,
+            p1_hp: self.state.fighters[1].hp,
+        }
+    }
+
+    /// Step with action repeat: run `repeat` physics ticks with the same actions,
+    /// accumulating rewards for both players. Early-stops on done.
+    fn step_both_repeat(
+        &mut self,
+        p0_action: [f32; ACTION_SIZE],
+        p1_action: [f32; ACTION_SIZE],
+        weights: &RewardWeights,
+        repeat: u32,
+    ) -> SelfPlayStepResult {
+        let mut total_reward_p0 = 0.0f32;
+        let mut total_reward_p1 = 0.0f32;
+        let mut result = SelfPlayStepResult {
+            obs_p0: [0.0; OBS_SIZE],
+            obs_p1: [0.0; OBS_SIZE],
+            reward_p0: 0.0,
+            reward_p1: 0.0,
+            done: false,
+            outcome: String::new(),
+            p0_hp: MAX_HP,
+            p1_hp: MAX_HP,
+        };
+
+        for _ in 0..repeat {
+            result = self.step_both(p0_action, p1_action, weights);
+            total_reward_p0 += result.reward_p0;
+            total_reward_p1 += result.reward_p1;
+            if result.done {
+                break;
+            }
+        }
+
+        result.reward_p0 = total_reward_p0;
+        result.reward_p1 = total_reward_p1;
+        result
+    }
+}
+
+/// Vectorized self-play environment. Both players are Python-controlled.
+///
+/// Usage:
+///     env = SelfPlayBatchEnv(64, True, seed=0, action_repeat=10)
+///     obs_p0, obs_p1 = env.reset()
+///     obs_p0, obs_p1, rew_p0, rew_p1, dones, infos = env.step(actions_p0, actions_p1)
+#[pyclass(unsendable)]
+struct SelfPlayBatchEnv {
+    envs: Vec<SelfPlayEnvInstance>,
+    n_envs: usize,
+    randomize: bool,
+    action_repeat: u32,
+    weights: RewardWeights,
+    rng: Pcg64,
+}
+
+#[pymethods]
+impl SelfPlayBatchEnv {
+    #[new]
+    #[pyo3(signature = (n_envs, randomize_spawns=true, seed=0, action_repeat=1))]
+    fn new(n_envs: usize, randomize_spawns: bool, seed: u64, action_repeat: u32) -> Self {
+        let mut rng = Pcg64::seed_from_u64(seed);
+        let envs: Vec<SelfPlayEnvInstance> = (0..n_envs)
+            .map(|_| {
+                let env_seed = rng.gen::<u64>();
+                SelfPlayEnvInstance::new(env_seed, randomize_spawns)
+            })
+            .collect();
+
+        Self {
+            envs,
+            n_envs,
+            randomize: randomize_spawns,
+            action_repeat: action_repeat.max(1),
+            weights: RewardWeights::default(),
+            rng,
+        }
+    }
+
+    /// Set reward weights.
+    #[pyo3(signature = (
+        damage_dealt=None,
+        damage_taken=None,
+        win=None,
+        lose=None,
+        approach=None,
+        alive=None,
+        proximity=None,
+        facing=None,
+    ))]
+    fn set_rewards(
+        &mut self,
+        damage_dealt: Option<f32>,
+        damage_taken: Option<f32>,
+        win: Option<f32>,
+        lose: Option<f32>,
+        approach: Option<f32>,
+        alive: Option<f32>,
+        proximity: Option<f32>,
+        facing: Option<f32>,
+    ) {
+        if let Some(v) = damage_dealt { self.weights.damage_dealt = v; }
+        if let Some(v) = damage_taken { self.weights.damage_taken = v; }
+        if let Some(v) = win { self.weights.win = v; }
+        if let Some(v) = lose { self.weights.lose = v; }
+        if let Some(v) = approach { self.weights.approach = v; }
+        if let Some(v) = alive { self.weights.alive = v; }
+        if let Some(v) = proximity { self.weights.proximity = v; }
+        if let Some(v) = facing { self.weights.facing = v; }
+    }
+
+    /// Reset all environments. Returns (obs_p0, obs_p1) as numpy arrays (n_envs, OBS_SIZE).
+    fn reset<'py>(
+        &mut self,
+        py: Python<'py>,
+    ) -> (Bound<'py, PyArray2<f32>>, Bound<'py, PyArray2<f32>>) {
+        // Generate reset seeds sequentially (RNG is not Send)
+        let seeds: Vec<u64> = (0..self.n_envs)
+            .map(|_| self.rng.gen::<u64>())
+            .collect();
+
+        let randomize = self.randomize;
+
+        // Reset in parallel
+        let obs_pairs: Vec<([f32; OBS_SIZE], [f32; OBS_SIZE])> = self.envs
+            .par_iter_mut()
+            .zip(seeds.into_par_iter())
+            .map(|(env, seed)| env.reset(seed, randomize))
+            .collect();
+
+        // Write directly into numpy buffers
+        let obs_p0_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, OBS_SIZE], false);
+        let obs_p1_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, OBS_SIZE], false);
+        unsafe {
+            let buf_p0 = obs_p0_py.as_slice_mut().unwrap();
+            let buf_p1 = obs_p1_py.as_slice_mut().unwrap();
+            for (i, (o0, o1)) in obs_pairs.iter().enumerate() {
+                buf_p0[i * OBS_SIZE..(i + 1) * OBS_SIZE].copy_from_slice(o0);
+                buf_p1[i * OBS_SIZE..(i + 1) * OBS_SIZE].copy_from_slice(o1);
+            }
+        }
+        (obs_p0_py, obs_p1_py)
+    }
+
+    /// Step all environments in parallel.
+    ///
+    /// Args:
+    ///     actions_p0: numpy array (n_envs, ACTION_SIZE) float32
+    ///     actions_p1: numpy array (n_envs, ACTION_SIZE) float32
+    ///
+    /// Returns: (obs_p0, obs_p1, rew_p0, rew_p1, dones, infos)
+    fn step<'py>(
+        &mut self,
+        py: Python<'py>,
+        actions_p0: PyReadonlyArray2<f32>,
+        actions_p1: PyReadonlyArray2<f32>,
+    ) -> PyResult<(
+        Bound<'py, PyArray2<f32>>,
+        Bound<'py, PyArray2<f32>>,
+        Bound<'py, PyArray1<f32>>,
+        Bound<'py, PyArray1<f32>>,
+        Bound<'py, PyArray1<bool>>,
+        Bound<'py, PyList>,
+    )> {
+        let arr_p0 = actions_p0.as_array();
+        let arr_p1 = actions_p1.as_array();
+        if arr_p0.shape() != [self.n_envs, ACTION_SIZE] {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "expected actions_p0 shape ({}, {}), got {:?}",
+                self.n_envs, ACTION_SIZE, arr_p0.shape()
+            )));
+        }
+        if arr_p1.shape() != [self.n_envs, ACTION_SIZE] {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "expected actions_p1 shape ({}, {}), got {:?}",
+                self.n_envs, ACTION_SIZE, arr_p1.shape()
+            )));
+        }
+
+        // Read actions from numpy
+        let actions_0: Vec<[f32; ACTION_SIZE]> = (0..self.n_envs)
+            .map(|i| {
+                let row = arr_p0.row(i);
+                [row[0], row[1], row[2]]
+            })
+            .collect();
+        let actions_1: Vec<[f32; ACTION_SIZE]> = (0..self.n_envs)
+            .map(|i| {
+                let row = arr_p1.row(i);
+                [row[0], row[1], row[2]]
+            })
+            .collect();
+
+        let weights = &self.weights;
+        let repeat = self.action_repeat;
+
+        // Step all envs in parallel (hot path — no GIL, no Python objects)
+        let results: Vec<SelfPlayStepResult> = self.envs
+            .par_iter_mut()
+            .zip(actions_0.into_par_iter().zip(actions_1.into_par_iter()))
+            .map(|(env, (a0, a1))| env.step_both_repeat(a0, a1, weights, repeat))
+            .collect();
+
+        // Generate reset seeds for done envs (sequential, needs RNG)
+        let reset_seeds: Vec<Option<u64>> = results
+            .iter()
+            .map(|r| {
+                if r.done {
+                    Some(self.rng.gen::<u64>())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Auto-reset done envs in parallel
+        let randomize = self.randomize;
+        let reset_obs: Vec<Option<([f32; OBS_SIZE], [f32; OBS_SIZE])>> = self.envs
+            .par_iter_mut()
+            .zip(reset_seeds.into_par_iter())
+            .map(|(env, seed_opt)| {
+                seed_opt.map(|seed| env.reset(seed, randomize))
+            })
+            .collect();
+
+        // Allocate output numpy arrays
+        let obs_p0_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, OBS_SIZE], false);
+        let obs_p1_py = PyArray2::<f32>::zeros_bound(py, [self.n_envs, OBS_SIZE], false);
+        let rew_p0_py = PyArray1::<f32>::zeros_bound(py, self.n_envs, false);
+        let rew_p1_py = PyArray1::<f32>::zeros_bound(py, self.n_envs, false);
+        let done_py = PyArray1::<bool>::zeros_bound(py, self.n_envs, false);
+
+        let info_list = PyList::empty_bound(py);
+
+        unsafe {
+            let buf_obs_p0 = obs_p0_py.as_slice_mut().unwrap();
+            let buf_obs_p1 = obs_p1_py.as_slice_mut().unwrap();
+            let buf_rew_p0 = rew_p0_py.as_slice_mut().unwrap();
+            let buf_rew_p1 = rew_p1_py.as_slice_mut().unwrap();
+            let buf_done = done_py.as_slice_mut().unwrap();
+
+            for (i, result) in results.iter().enumerate() {
+                // Use reset obs if env was done, otherwise step obs
+                let (o0, o1) = if let Some((new_o0, new_o1)) = &reset_obs[i] {
+                    (new_o0, new_o1)
+                } else {
+                    (&result.obs_p0, &result.obs_p1)
+                };
+                buf_obs_p0[i * OBS_SIZE..(i + 1) * OBS_SIZE].copy_from_slice(o0);
+                buf_obs_p1[i * OBS_SIZE..(i + 1) * OBS_SIZE].copy_from_slice(o1);
+                buf_rew_p0[i] = result.reward_p0;
+                buf_rew_p1[i] = result.reward_p1;
+                buf_done[i] = result.done;
+            }
+        }
+
+        // Build info list (only create dicts for done envs to minimize overhead)
+        for result in results.iter() {
+            let info = PyDict::new_bound(py);
+            if result.done {
+                info.set_item("outcome", &result.outcome)?;
+                info.set_item("p0_hp", result.p0_hp)?;
+                info.set_item("p1_hp", result.p1_hp)?;
+            }
+            info_list.append(info)?;
+        }
+
+        Ok((obs_p0_py, obs_p1_py, rew_p0_py, rew_p1_py, done_py, info_list))
+    }
+
+    /// Number of environments.
+    #[getter]
+    fn n(&self) -> usize {
+        self.n_envs
+    }
+
+    #[getter]
+    fn obs_size(&self) -> usize {
+        OBS_SIZE
+    }
+
+    #[getter]
+    fn action_size(&self) -> usize {
+        ACTION_SIZE
+    }
+
+    /// Get/set action repeat (physics ticks per RL step).
+    #[getter]
+    fn action_repeat(&self) -> u32 {
+        self.action_repeat
+    }
+
+    #[setter]
+    fn set_action_repeat(&mut self, value: u32) {
+        self.action_repeat = value.max(1);
+    }
+}
+
 /// Python module definition.
 #[pymodule]
 fn dogfight_pyenv(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DogfightEnv>()?;
     m.add_class::<BatchEnv>()?;
+    m.add_class::<SelfPlayBatchEnv>()?;
     m.add("OBS_SIZE", OBS_SIZE)?;
     m.add("ACTION_SIZE", ACTION_SIZE)?;
     m.add("MAX_TICKS", MAX_TICKS)?;

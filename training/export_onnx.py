@@ -11,12 +11,12 @@ import numpy as np
 from model import ActorCritic, ActorOnly, OBS_SIZE, ACTION_SIZE
 
 
-def export(model_path: str, output_path: str, validate: bool = True):
+def export(model_path: str, output_path: str, validate: bool = True, hidden: int = 256, n_blocks: int = 0):
     device = torch.device("cpu")
 
     # Load checkpoint
     ckpt = torch.load(model_path, map_location=device, weights_only=True)
-    ac = ActorCritic().to(device)
+    ac = ActorCritic(hidden=hidden, n_blocks=n_blocks).to(device)
     ac.load_state_dict(ckpt["model"])
     ac.eval()
 
@@ -76,5 +76,7 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output", default="policy.onnx",
                         help="Output ONNX path")
     parser.add_argument("--no-validate", action="store_true")
+    parser.add_argument("--hidden", type=int, default=256, help="Hidden dimension")
+    parser.add_argument("--n-blocks", type=int, default=0, help="Number of residual blocks (0=legacy MLP)")
     args = parser.parse_args()
-    export(args.model, args.output, not args.no_validate)
+    export(args.model, args.output, not args.no_validate, args.hidden, args.n_blocks)

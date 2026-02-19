@@ -24,11 +24,11 @@ def save(data):
     print(f"Saved {REGISTRY}")
 
 
-def new_experiment(tag: str, config: dict, notes: str = "") -> int:
+def new_experiment(tag: str, config: dict, notes: str = "", config_file: str = "") -> int:
     reg = load()
     exp_id = reg["next_id"]
     reg["next_id"] = exp_id + 1
-    reg["experiments"].append({
+    entry = {
         "id": exp_id,
         "date": str(date.today()),
         "tag": tag,
@@ -36,10 +36,28 @@ def new_experiment(tag: str, config: dict, notes: str = "") -> int:
         "status": "running",
         "notes": notes,
         "results": {},
-    })
+    }
+    if config_file:
+        entry["config_file"] = config_file
+    reg["experiments"].append(entry)
     save(reg)
     print(f"Created experiment #{exp_id}: {tag}")
     return exp_id
+
+
+def from_config(config_path: str, tag: str = "", notes: str = "") -> int:
+    """Create a new experiment entry from a JSON config file."""
+    path = Path(config_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Config not found: {config_path}")
+
+    with open(path) as f:
+        config = json.load(f)
+
+    if not tag:
+        tag = path.stem  # e.g., "selfplay_v1" from "selfplay_v1.json"
+
+    return new_experiment(tag, config, notes, config_file=str(path))
 
 
 def update_experiment(exp_id: int, status: str = None, results: dict = None, notes: str = None):
@@ -83,12 +101,19 @@ if __name__ == "__main__":
 
     sub.add_parser("list")
 
+    fc = sub.add_parser("from-config")
+    fc.add_argument("--config", required=True, help="Path to JSON config file")
+    fc.add_argument("--tag", default="")
+    fc.add_argument("--notes", default="")
+
     args = parser.parse_args()
     if args.cmd == "new":
         new_experiment(args.tag, json.loads(args.config), args.notes)
     elif args.cmd == "update":
         results = json.loads(args.results) if args.results else None
         update_experiment(args.id, args.status, results, args.notes)
+    elif args.cmd == "from-config":
+        from_config(args.config, args.tag, args.notes)
     elif args.cmd == "list":
         list_experiments()
     else:
