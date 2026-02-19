@@ -1,0 +1,14 @@
+{
+  "n_envs": 128,
+  "n_steps": 2048,
+  "num_updates": 750,
+  "n_epochs": 4,
+  "minibatch_size": 2048,
+  "lr": 0.0003,
+  "ent_coef": 0.0,
+  "gamma": 0.999,
+  "gae_lambda": 0.95,
+  "clip_eps": 0.2,
+  "vf_coef": 0.5,
+  "action_repeat": 10
+}

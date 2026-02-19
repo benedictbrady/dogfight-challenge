@@ -86,6 +86,14 @@ HTTP: `GET /api/policies` returns available policy names.
 - `MatchSetup.tsx` — Policy dropdowns, seed, Scramble button, server status
 - `useMatch.ts` — WebSocket hook, frame accumulation, playback timer
 
+## Modal Training
+
+See `.claude/projects/.../memory/modal-guide.md` for full details. Key rules:
+- **Always use `modal run --detach`** for real training runs — without it, closing terminal kills the container
+- **Modal CLI is slow** (~2 min per invocation due to image rebuild) — never run interactively or in parallel
+- Check Slack or Modal dashboard for run status, not CLI commands
+- Training run history tracked in `.claude/projects/.../memory/modal-training-runs.md`
+
 ## Gotchas
 
 - `ort` crate must be pinned to `2.0.0-rc.11` (pre-release, needs explicit version)

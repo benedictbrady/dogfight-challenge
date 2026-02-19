@@ -846,14 +846,42 @@ fn compute_reward_for_player(
 }
 
 // ---------------------------------------------------------------------------
-// SelfPlayBatchEnv — both players controlled by Python
+// SelfPlayBatchEnv — both players controlled by Python (with optional scripted P1)
 // ---------------------------------------------------------------------------
 
+/// Whether a self-play env uses a neural P1 (from Python) or a scripted Rust policy.
+enum EnvMode {
+    /// P1 actions come from Python (neural self-play).
+    Neural,
+    /// P1 actions are computed internally by a scripted Rust policy.
+    Scripted {
+        opponent: Box<dyn Policy>,
+        name: String,
+    },
+}
+
+/// Helper: create an EnvMode based on scripted fraction and pool.
+fn make_env_mode(rng: &mut Pcg64, scripted_fraction: f64, scripted_pool: &[String]) -> EnvMode {
+    if scripted_pool.is_empty() || scripted_fraction <= 0.0 {
+        return EnvMode::Neural;
+    }
+    if rng.gen::<f64>() < scripted_fraction {
+        let idx = rng.gen_range(0..scripted_pool.len());
+        EnvMode::Scripted {
+            opponent: make_policy(&scripted_pool[idx]),
+            name: scripted_pool[idx].clone(),
+        }
+    } else {
+        EnvMode::Neural
+    }
+}
+
 /// Per-env instance for self-play. Tracks reward state for BOTH players.
-/// No opponent policy — both players are Python-controlled, so this is Send.
+/// Supports optional scripted P1 opponent (for anchoring against scripted bots).
 struct SelfPlayEnvInstance {
     state: SimState,
     tick: u32,
+    mode: EnvMode,
     // Player 0 reward tracking
     p0_prev_hp: u8,
     p0_prev_opp_hp: u8,
@@ -877,12 +905,13 @@ struct SelfPlayStepResult {
 }
 
 impl SelfPlayEnvInstance {
-    fn new(seed: u64, randomize: bool) -> Self {
+    fn new(seed: u64, randomize: bool, mode: EnvMode) -> Self {
         let state = SimState::new_with_seed(seed, randomize);
         let dist = (state.fighters[0].position - state.fighters[1].position).length();
         Self {
             state,
             tick: 0,
+            mode,
             p0_prev_hp: MAX_HP,
             p0_prev_opp_hp: MAX_HP,
             p0_prev_distance: dist,
@@ -892,8 +921,9 @@ impl SelfPlayEnvInstance {
         }
     }
 
-    fn reset(&mut self, seed: u64, randomize: bool) -> ([f32; OBS_SIZE], [f32; OBS_SIZE]) {
+    fn reset(&mut self, seed: u64, randomize: bool, new_mode: EnvMode) -> ([f32; OBS_SIZE], [f32; OBS_SIZE]) {
         self.state = SimState::new_with_seed(seed, randomize);
+        self.mode = new_mode;
         let dist = (self.state.fighters[0].position - self.state.fighters[1].position).length();
         self.tick = 0;
         self.p0_prev_hp = MAX_HP;
@@ -908,6 +938,10 @@ impl SelfPlayEnvInstance {
         (obs_p0, obs_p1)
     }
 
+    fn is_scripted(&self) -> bool {
+        matches!(self.mode, EnvMode::Scripted { .. })
+    }
+
     fn step_both(
         &mut self,
         p0_action: [f32; ACTION_SIZE],
@@ -915,7 +949,15 @@ impl SelfPlayEnvInstance {
         weights: &RewardWeights,
     ) -> SelfPlayStepResult {
         let act0 = Action::from_raw(p0_action);
-        let act1 = Action::from_raw(p1_action);
+
+        // P1 action: use scripted policy if in scripted mode, otherwise use provided action
+        let act1 = match &mut self.mode {
+            EnvMode::Neural => Action::from_raw(p1_action),
+            EnvMode::Scripted { opponent, .. } => {
+                let obs_p1 = self.state.observe(1);
+                opponent.act(&obs_p1)
+            }
+        };
 
         // Step physics
         self.state.step(&[act0, act1]);
@@ -1012,12 +1054,16 @@ impl SelfPlayEnvInstance {
     }
 }
 
-/// Vectorized self-play environment. Both players are Python-controlled.
+/// Vectorized self-play environment. Both players are Python-controlled,
+/// with optional scripted P1 opponents for a fraction of envs (anchoring).
 ///
 /// Usage:
 ///     env = SelfPlayBatchEnv(64, True, seed=0, action_repeat=10)
+///     env.set_scripted_fraction(0.2)
+///     env.set_scripted_pool(["ace", "brawler"])
 ///     obs_p0, obs_p1 = env.reset()
 ///     obs_p0, obs_p1, rew_p0, rew_p1, dones, infos = env.step(actions_p0, actions_p1)
+///     mask = env.scripted_mask  # which envs use scripted P1
 #[pyclass(unsendable)]
 struct SelfPlayBatchEnv {
     envs: Vec<SelfPlayEnvInstance>,
@@ -1026,6 +1072,8 @@ struct SelfPlayBatchEnv {
     action_repeat: u32,
     weights: RewardWeights,
     rng: Pcg64,
+    scripted_fraction: f64,
+    scripted_pool: Vec<String>,
 }
 
 #[pymethods]
@@ -1037,7 +1085,7 @@ impl SelfPlayBatchEnv {
         let envs: Vec<SelfPlayEnvInstance> = (0..n_envs)
             .map(|_| {
                 let env_seed = rng.gen::<u64>();
-                SelfPlayEnvInstance::new(env_seed, randomize_spawns)
+                SelfPlayEnvInstance::new(env_seed, randomize_spawns, EnvMode::Neural)
             })
             .collect();
 
@@ -1048,6 +1096,8 @@ impl SelfPlayBatchEnv {
             action_repeat: action_repeat.max(1),
             weights: RewardWeights::default(),
             rng,
+            scripted_fraction: 0.0,
+            scripted_pool: Vec::new(),
         }
     }
 
@@ -1088,9 +1138,13 @@ impl SelfPlayBatchEnv {
         &mut self,
         py: Python<'py>,
     ) -> (Bound<'py, PyArray2<f32>>, Bound<'py, PyArray2<f32>>) {
-        // Generate reset seeds sequentially (RNG is not Send)
-        let seeds: Vec<u64> = (0..self.n_envs)
-            .map(|_| self.rng.gen::<u64>())
+        // Generate reset seeds and modes sequentially (RNG is not Send)
+        let params: Vec<(u64, EnvMode)> = (0..self.n_envs)
+            .map(|_| {
+                let seed = self.rng.gen::<u64>();
+                let mode = make_env_mode(&mut self.rng, self.scripted_fraction, &self.scripted_pool);
+                (seed, mode)
+            })
             .collect();
 
         let randomize = self.randomize;
@@ -1098,8 +1152,8 @@ impl SelfPlayBatchEnv {
         // Reset in parallel
         let obs_pairs: Vec<([f32; OBS_SIZE], [f32; OBS_SIZE])> = self.envs
             .par_iter_mut()
-            .zip(seeds.into_par_iter())
-            .map(|(env, seed)| env.reset(seed, randomize))
+            .zip(params.into_par_iter())
+            .map(|(env, (seed, mode))| env.reset(seed, randomize, mode))
             .collect();
 
         // Write directly into numpy buffers
@@ -1175,12 +1229,14 @@ impl SelfPlayBatchEnv {
             .map(|(env, (a0, a1))| env.step_both_repeat(a0, a1, weights, repeat))
             .collect();
 
-        // Generate reset seeds for done envs (sequential, needs RNG)
-        let reset_seeds: Vec<Option<u64>> = results
+        // Generate reset params for done envs (sequential, needs RNG)
+        let reset_params: Vec<Option<(u64, EnvMode)>> = results
             .iter()
             .map(|r| {
                 if r.done {
-                    Some(self.rng.gen::<u64>())
+                    let seed = self.rng.gen::<u64>();
+                    let mode = make_env_mode(&mut self.rng, self.scripted_fraction, &self.scripted_pool);
+                    Some((seed, mode))
                 } else {
                     None
                 }
@@ -1191,9 +1247,9 @@ impl SelfPlayBatchEnv {
         let randomize = self.randomize;
         let reset_obs: Vec<Option<([f32; OBS_SIZE], [f32; OBS_SIZE])>> = self.envs
             .par_iter_mut()
-            .zip(reset_seeds.into_par_iter())
-            .map(|(env, seed_opt)| {
-                seed_opt.map(|seed| env.reset(seed, randomize))
+            .zip(reset_params.into_par_iter())
+            .map(|(env, params)| {
+                params.map(|(seed, mode)| env.reset(seed, randomize, mode))
             })
             .collect();
 
@@ -1267,6 +1323,45 @@ impl SelfPlayBatchEnv {
     #[setter]
     fn set_action_repeat(&mut self, value: u32) {
         self.action_repeat = value.max(1);
+    }
+
+    /// Set the fraction of envs that use scripted opponents (0.0 = all neural, 1.0 = all scripted).
+    /// Takes effect on next reset or auto-reset of each env.
+    fn set_scripted_fraction(&mut self, fraction: f64) {
+        self.scripted_fraction = fraction.clamp(0.0, 1.0);
+    }
+
+    /// Set the pool of scripted opponent names (e.g. ["ace", "brawler"]).
+    fn set_scripted_pool(&mut self, pool: Vec<String>) -> PyResult<()> {
+        for name in &pool {
+            resolve_policy(name)?;
+        }
+        self.scripted_pool = pool;
+        Ok(())
+    }
+
+    /// Get the scripted fraction.
+    #[getter]
+    fn scripted_fraction(&self) -> f64 {
+        self.scripted_fraction
+    }
+
+    /// Returns a boolean mask: True for envs using scripted P1, False for neural P1.
+    #[getter]
+    fn scripted_mask<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<bool>> {
+        let mask: Vec<bool> = self.envs.iter().map(|e| e.is_scripted()).collect();
+        let arr = PyArray1::<bool>::zeros_bound(py, self.n_envs, false);
+        unsafe {
+            let buf = arr.as_slice_mut().unwrap();
+            buf.copy_from_slice(&mask);
+        }
+        arr
+    }
+
+    /// Returns the number of envs currently using scripted opponents.
+    #[getter]
+    fn n_scripted(&self) -> usize {
+        self.envs.iter().filter(|e| e.is_scripted()).count()
     }
 }
 

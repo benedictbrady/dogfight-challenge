@@ -11,6 +11,7 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 from model import ActorCritic, OBS_SIZE, ACTION_SIZE
+from naming import make_run_name
 
 # Try to import the Rust env; helpful error if not built yet.
 try:
@@ -48,13 +49,13 @@ def train(args):
     print(f"Device: {device}")
     print(f"Action repeat: {args.action_repeat} (episode ~{10800 // args.action_repeat} RL steps)")
 
-    run_name = f"ppo_{int(time.time())}"
+    run_name = args.run_name or make_run_name("curriculum")
     log_dir = Path(args.log_dir) / run_name
     ckpt_dir = Path(args.checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(str(log_dir))
 
-    model = ActorCritic().to(device)
+    model = ActorCritic(hidden=args.hidden, n_blocks=args.n_blocks).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-5)
 
     global_step = 0
@@ -320,8 +321,12 @@ if __name__ == "__main__":
     parser.add_argument("--save-every", type=int, default=50)
     parser.add_argument("--log-dir", default="training/runs")
     parser.add_argument("--checkpoint-dir", default="training/checkpoints")
+    parser.add_argument("--hidden", type=int, default=256, help="Hidden dimension")
+    parser.add_argument("--n-blocks", type=int, default=0, help="Number of residual blocks (0=legacy MLP)")
     parser.add_argument("--resume", type=str, default=None)
     parser.add_argument("--reset-std", type=float, default=None, help="Reset log_std to this value on resume")
+    parser.add_argument("--run-name", type=str, default=None,
+                        help="Mnemonic run name (auto-generated if not provided)")
 
     args = parser.parse_args()
     train(args)
