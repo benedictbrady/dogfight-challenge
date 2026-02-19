@@ -1,0 +1,407 @@
+{
+  "hidden": 384,
+  "n_blocks": 3,
+  "max_size": 40,
+  "entries": [
+    {
+      "name": "sp_0000",
+      "path": "sp_0000.pt",
+      "update_num": 0,
+      "elo": 849.3723425549322,
+      "games": 18579,
+      "wins": 14262,
+      "losses": 197,
+      "draws": 4120
+    },
+    {
+      "name": "sp_0008",
+      "path": "sp_0008.pt",
+      "update_num": 8,
+      "elo": 1355.209760733228,
+      "games": 5411,
+      "wins": 4487,
+      "losses": 47,
+      "draws": 877
+    },
+    {
+      "name": "sp_0013",
+      "path": "sp_0013.pt",
+      "update_num": 13,
+      "elo": 790.7536042572843,
+      "games": 4897,
+      "wins": 4134,
+      "losses": 159,
+      "draws": 604
+    },
+    {
+      "name": "sp_0014",
+      "path": "sp_0014.pt",
+      "update_num": 14,
+      "elo": 807.6058951009802,
+      "games": 7310,
+      "wins": 6133,
+      "losses": 309,
+      "draws": 868
+    },
+    {
+      "name": "sp_0020",
+      "path": "sp_0020.pt",
+      "update_num": 20,
+      "elo": 803.3407085762642,
+      "games": 11837,
+      "wins": 10796,
+      "losses": 389,
+      "draws": 652
+    },
+    {
+      "name": "sp_0024",
+      "path": "sp_0024.pt",
+      "update_num": 24,
+      "elo": 750.4811461640624,
+      "games": 6081,
+      "wins": 5786,
+      "losses": 84,
+      "draws": 211
+    },
+    {
+      "name": "sp_0025",
+      "path": "sp_0025.pt",
+      "update_num": 25,
+      "elo": 749.5076013804546,
+      "games": 9959,
+      "wins": 9498,
+      "losses": 173,
+      "draws": 288
+    },
+    {
+      "name": "sp_0026",
+      "path": "sp_0026.pt",
+      "update_num": 26,
+      "elo": 734.7400806660804,
+      "games": 5802,
+      "wins": 5557,
+      "losses": 84,
+      "draws": 161
+    },
+    {
+      "name": "sp_0029",
+      "path": "sp_0029.pt",
+      "update_num": 29,
+      "elo": 752.3880926750529,
+      "games": 8435,
+      "wins": 7463,
+      "losses": 475,
+      "draws": 497
+    },
+    {
+      "name": "sp_0039",
+      "path": "sp_0039.pt",
+      "update_num": 39,
+      "elo": 861.2321953381984,
+      "games": 3406,
+      "wins": 3183,
+      "losses": 95,
+      "draws": 128
+    },
+    {
+      "name": "sp_0040",
+      "path": "sp_0040.pt",
+      "update_num": 40,
+      "elo": 722.0615738164613,
+      "games": 8880,
+      "wins": 7695,
+      "losses": 701,
+      "draws": 484
+    },
+    {
+      "name": "sp_0050",
+      "path": "sp_0050.pt",
+      "update_num": 50,
+      "elo": 852.667311034536,
+      "games": 9263,
+      "wins": 7838,
+      "losses": 946,
+      "draws": 479
+    },
+    {
+      "name": "sp_0058",
+      "path": "sp_0058.pt",
+      "update_num": 58,
+      "elo": 832.7981254313345,
+      "games": 19267,
+      "wins": 18755,
+      "losses": 315,
+      "draws": 197
+    },
+    {
+      "name": "sp_0067",
+      "path": "sp_0067.pt",
+      "update_num": 67,
+      "elo": 866.5245552928639,
+      "games": 14900,
+      "wins": 14685,
+      "losses": 148,
+      "draws": 67
+    },
+    {
+      "name": "sp_0073",
+      "path": "sp_0073.pt",
+      "update_num": 73,
+      "elo": 841.1325088998594,
+      "games": 3852,
+      "wins": 3816,
+      "losses": 29,
+      "draws": 7
+    },
+    {
+      "name": "sp_0075",
+      "path": "sp_0075.pt",
+      "update_num": 75,
+      "elo": 951.8517057104696,
+      "games": 31197,
+      "wins": 30805,
+      "losses": 314,
+      "draws": 78
+    },
+    {
+      "name": "sp_0090",
+      "path": "sp_0090.pt",
+      "update_num": 90,
+      "elo": 1258.7036618969073,
+      "games": 6355,
+      "wins": 6014,
+      "losses": 203,
+      "draws": 138
+    },
+    {
+      "name": "sp_0100",
+      "path": "sp_0100.pt",
+      "update_num": 100,
+      "elo": 1013.1596679491258,
+      "games": 15725,
+      "wins": 14876,
+      "losses": 753,
+      "draws": 96
+    },
+    {
+      "name": "sp_0115",
+      "path": "sp_0115.pt",
+      "update_num": 115,
+      "elo": 737.6862656960559,
+      "games": 10105,
+      "wins": 10002,
+      "losses": 98,
+      "draws": 5
+    },
+    {
+      "name": "sp_0116",
+      "path": "sp_0116.pt",
+      "update_num": 116,
+      "elo": 686.1957575640464,
+      "games": 23694,
+      "wins": 22833,
+      "losses": 859,
+      "draws": 2
+    },
+    {
+      "name": "sp_0125",
+      "path": "sp_0125.pt",
+      "update_num": 125,
+      "elo": 1135.9239735743402,
+      "games": 26925,
+      "wins": 26214,
+      "losses": 710,
+      "draws": 1
+    },
+    {
+      "name": "sp_0135",
+      "path": "sp_0135.pt",
+      "update_num": 135,
+      "elo": 751.4794804411531,
+      "games": 32849,
+      "wins": 32119,
+      "losses": 711,
+      "draws": 19
+    },
+    {
+      "name": "sp_0150",
+      "path": "sp_0150.pt",
+      "update_num": 150,
+      "elo": 840.1981146087116,
+      "games": 3022,
+      "wins": 3012,
+      "losses": 9,
+      "draws": 1
+    },
+    {
+      "name": "sp_0152",
+      "path": "sp_0152.pt",
+      "update_num": 152,
+      "elo": 883.666723325096,
+      "games": 41817,
+      "wins": 39470,
+      "losses": 2321,
+      "draws": 26
+    },
+    {
+      "name": "sp_0173",
+      "path": "sp_0173.pt",
+      "update_num": 173,
+      "elo": 1070.6051864898243,
+      "games": 4310,
+      "wins": 3792,
+      "losses": 486,
+      "draws": 32
+    },
+    {
+      "name": "sp_0175",
+      "path": "sp_0175.pt",
+      "update_num": 175,
+      "elo": 990.8545321818134,
+      "games": 12908,
+      "wins": 10697,
+      "losses": 1718,
+      "draws": 493
+    },
+    {
+      "name": "sp_0189",
+      "path": "sp_0189.pt",
+      "update_num": 189,
+      "elo": 883.7622635027979,
+      "games": 7152,
+      "wins": 6261,
+      "losses": 466,
+      "draws": 425
+    },
+    {
+      "name": "sp_0200",
+      "path": "sp_0200.pt",
+      "update_num": 200,
+      "elo": 1063.4551296806972,
+      "games": 8361,
+      "wins": 7438,
+      "losses": 416,
+      "draws": 507
+    },
+    {
+      "name": "sp_0216",
+      "path": "sp_0216.pt",
+      "update_num": 216,
+      "elo": 1155.9056179670508,
+      "games": 4072,
+      "wins": 3636,
+      "losses": 273,
+      "draws": 163
+    },
+    {
+      "name": "sp_0228",
+      "path": "sp_0228.pt",
+      "update_num": 228,
+      "elo": 1306.4564043691557,
+      "games": 8699,
+      "wins": 8191,
+      "losses": 317,
+      "draws": 191
+    },
+    {
+      "name": "sp_0250",
+      "path": "sp_0250.pt",
+      "update_num": 250,
+      "elo": 909.370585757468,
+      "games": 14974,
+      "wins": 14407,
+      "losses": 458,
+      "draws": 109
+    },
+    {
+      "name": "sp_0275",
+      "path": "sp_0275.pt",
+      "update_num": 275,
+      "elo": 1029.348815038756,
+      "games": 7665,
+      "wins": 7173,
+      "losses": 370,
+      "draws": 122
+    },
+    {
+      "name": "sp_0300",
+      "path": "sp_0300.pt",
+      "update_num": 300,
+      "elo": 1118.6691754998808,
+      "games": 7675,
+      "wins": 7332,
+      "losses": 283,
+      "draws": 60
+    },
+    {
+      "name": "sp_0313",
+      "path": "sp_0313.pt",
+      "update_num": 313,
+      "elo": 1175.3095732933282,
+      "games": 2604,
+      "wins": 2530,
+      "losses": 62,
+      "draws": 12
+    },
+    {
+      "name": "sp_0325",
+      "path": "sp_0325.pt",
+      "update_num": 325,
+      "elo": 1430.338842049687,
+      "games": 2971,
+      "wins": 2816,
+      "losses": 135,
+      "draws": 20
+    },
+    {
+      "name": "sp_0335",
+      "path": "sp_0335.pt",
+      "update_num": 335,
+      "elo": 1529.3620179567947,
+      "games": 3012,
+      "wins": 2723,
+      "losses": 256,
+      "draws": 33
+    },
+    {
+      "name": "sp_0350",
+      "path": "sp_0350.pt",
+      "update_num": 350,
+      "elo": 1381.827876392321,
+      "games": 3500,
+      "wins": 2935,
+      "losses": 415,
+      "draws": 150
+    },
+    {
+      "name": "sp_0362",
+      "path": "sp_0362.pt",
+      "update_num": 362,
+      "elo": 1383.8555499385493,
+      "games": 6688,
+      "wins": 5334,
+      "losses": 1172,
+      "draws": 182
+    },
+    {
+      "name": "sp_0375",
+      "path": "sp_0375.pt",
+      "update_num": 375,
+      "elo": 1402.4044093274765,
+      "games": 1761,
+      "wins": 1311,
+      "losses": 403,
+      "draws": 47
+    },
+    {
+      "name": "sp_0381",
+      "path": "sp_0381.pt",
+      "update_num": 381,
+      "elo": 1000.0,
+      "games": 0,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0
+    }
+  ]
+}

@@ -185,36 +185,22 @@ def train(
         "--save-every", str(save_every),
         "--checkpoint-dir", ckpt_dir,
         "--log-dir", log_dir,
+        "--run-name", exp_name,
     ]
     if resume:
         cmd.extend(["--resume", resume])
 
     print(f"=== {exp_name} ===")
     print(f"Config: {json.dumps(config)}")
-    _slack_notify(f":rocket: *{exp_name}* started — {n_envs} envs, {n_steps} steps, {num_updates} updates")
+    # Note: training script sends its own Slack notifications using --run-name
 
     t0 = time.time()
-    # Use Popen to stream output and send periodic Slack updates
-    # Slack every ~50 updates (train.py prints every 5 updates)
-    slack_every = 50
-    last_slack_update = 0
-    update_re = re.compile(r"update (\d+)/(\d+).*win_rate ([\d.]+%)")
-
     proc = subprocess.Popen(
         cmd, cwd="/app", stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, bufsize=1,
     )
     for line in proc.stdout:
         print(line, end="")
-        m = update_re.search(line)
-        if m:
-            current, total, win_rate = m.group(1), m.group(2), m.group(3)
-            current_int = int(current)
-            if current_int - last_slack_update >= slack_every:
-                elapsed_so_far = time.time() - t0
-                mins = elapsed_so_far / 60
-                _slack_notify(f":bar_chart: *{exp_name}* — update {current}/{total}, win_rate {win_rate} ({mins:.0f}m elapsed)")
-                last_slack_update = current_int
 
     proc.wait()
     elapsed = time.time() - t0
@@ -325,6 +311,7 @@ def train_selfplay(config: dict) -> dict:
         "--checkpoint-dir", ckpt_dir,
         "--log-dir", log_dir,
         "--pool-dir", pool_dir,
+        "--run-name", exp_name,
     ]
 
     # Scripted eval config
@@ -354,9 +341,7 @@ def train_selfplay(config: dict) -> dict:
 
     print(f"=== {exp_name} (self-play) ===")
     print(f"Model: {model_cfg.get('hidden', 384)}h / {model_cfg.get('n_blocks', 3)}b")
-    _slack_notify(
-        f":rocket: *{exp_name}* (self-play) started — {model_cfg.get('hidden', 384)}h/{model_cfg.get('n_blocks', 3)}b, {sp_cfg.get('sampling', 'pfsp')}, {train_cfg.get('n_envs', 256)} envs"
-    )
+    # Note: training script sends its own Slack notifications using --run-name
 
     t0 = time.time()
     proc = subprocess.Popen(
@@ -389,9 +374,110 @@ def train_selfplay(config: dict) -> dict:
 
     vol.commit()
 
-    status = ":white_check_mark:" if proc.returncode == 0 else ":x:"
-    mins = elapsed / 60
-    _slack_notify(f"{status} *{exp_name}* (self-play) finished in {mins:.0f}m (exit {proc.returncode})")
+    return {
+        "experiment": exp_name,
+        "elapsed_seconds": round(elapsed, 1),
+        "exit_code": proc.returncode,
+        "config": config,
+        "eval": eval_output,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Unified curriculum → self-play training function
+# ---------------------------------------------------------------------------
+
+@app.function(
+    image=image,
+    gpu="T4",
+    cpu=32,
+    memory=16384,
+    timeout=36000,  # 10 hours for full pipeline
+    volumes={"/results": vol},
+)
+def train_unified_modal(config: dict) -> dict:
+    """Run a unified curriculum → self-play training pipeline on Modal.
+
+    Args:
+        config: Full experiment config dict with curriculum, transition, selfplay sections.
+    """
+    import subprocess
+    import time
+    import json
+
+    ts = int(time.time())
+    tag = config.get("_tag", "unified")
+    exp_name = _make_name(tag, ts)
+    exp_dir = f"/results/unified/{exp_name}"
+    ckpt_dir = f"{exp_dir}/checkpoints"
+    log_dir = f"{exp_dir}/runs"
+    pool_dir = f"{exp_dir}/pool"
+    os.makedirs(ckpt_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(pool_dir, exist_ok=True)
+
+    # Save config
+    with open(f"{exp_dir}/config.json", "w") as f:
+        json.dump(config, f, indent=2)
+
+    # Write config to temp file for train_unified.py --config
+    config_path = f"{exp_dir}/run_config.json"
+    run_config = {k: v for k, v in config.items() if not k.startswith("_")}
+    with open(config_path, "w") as f:
+        json.dump(run_config, f, indent=2)
+
+    env = os.environ.copy()
+    env["SLACK_WEBHOOK_URL"] = SLACK_WEBHOOK
+
+    cmd = [
+        "python", "-u", "/app/training/train_unified.py",
+        "--config", config_path,
+        "--checkpoint-dir", ckpt_dir,
+        "--log-dir", log_dir,
+        "--pool-dir", pool_dir,
+        "--run-name", exp_name,
+    ]
+
+    # Resume if specified
+    resume = config.get("_resume", "")
+    if resume:
+        cmd.extend(["--resume", resume])
+
+    model_cfg = config.get("model", {})
+    print(f"=== {exp_name} (unified) ===")
+    print(f"Model: {model_cfg.get('hidden', 384)}h / {model_cfg.get('n_blocks', 3)}b")
+    # Note: training script sends its own Slack notifications using --run-name
+
+    t0 = time.time()
+    proc = subprocess.Popen(
+        cmd, cwd="/app", stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, bufsize=1, env=env,
+    )
+    for line in proc.stdout:
+        print(line, end="")
+
+    proc.wait()
+    elapsed = time.time() - t0
+
+    # Capture eval output
+    eval_output = ""
+    final_ckpt = f"{ckpt_dir}/final.pt"
+    if os.path.exists(final_ckpt):
+        eval_proc = subprocess.run(
+            [
+                "python", "/app/training/eval.py", final_ckpt,
+                "--matches", "50",
+                "--hidden", str(model_cfg.get("hidden", 384)),
+                "--n-blocks", str(model_cfg.get("n_blocks", 3)),
+            ],
+            cwd="/app", capture_output=True, text=True, env=env,
+        )
+        eval_output = eval_proc.stdout
+        print(eval_output)
+        with open(f"{exp_dir}/eval.txt", "w") as f:
+            f.write(eval_output)
+
+    vol.commit()
 
     return {
         "experiment": exp_name,
@@ -422,6 +508,12 @@ def list_results() -> list[str]:
         for d in sorted(os.listdir(sp_dir)):
             if os.path.isdir(f"{sp_dir}/{d}"):
                 results.append(f"selfplay/{d}")
+    # Also list unified experiments
+    uni_dir = "/results/unified"
+    if os.path.exists(uni_dir):
+        for d in sorted(os.listdir(uni_dir)):
+            if os.path.isdir(f"{uni_dir}/{d}"):
+                results.append(f"unified/{d}")
     return results
 
 
@@ -473,6 +565,7 @@ def main(
     smoke_test: bool = False,
     production: bool = False,
     selfplay: bool = False,
+    unified: bool = False,
     config: str = "",
     bootstrap: str = "",
     download: str = "",
@@ -523,7 +616,10 @@ def main(
         if bootstrap:
             cfg["_bootstrap"] = bootstrap
 
-        if script == "train_selfplay":
+        if script == "train_unified":
+            print(f"Launching unified pipeline from config: {config}")
+            result = train_unified_modal.remote(cfg)
+        elif script == "train_selfplay":
             print(f"Launching self-play from config: {config}")
             result = train_selfplay.remote(cfg)
         else:
@@ -538,6 +634,79 @@ def main(
                 tag=tag,
             )
         print(f"\nDone: {result['experiment']} in {result['elapsed_seconds']}s")
+        if result.get("eval"):
+            print(result["eval"])
+        return
+
+    # ----- Unified curriculum → self-play -----
+    if unified:
+        default_uni_config = {
+            "script": "train_unified",
+            "model": {"hidden": 384, "n_blocks": 3},
+            "training": {
+                "n_envs": n_envs if n_envs != 128 else 256,
+                "n_steps": n_steps,
+                "lr": lr, "gamma": 0.999, "gae_lambda": 0.95,
+                "clip_eps": 0.2, "vf_coef": 0.5, "ent_coef": 0.0,
+                "action_repeat": 10, "n_epochs": 4, "minibatch_size": 2048,
+                "max_grad_norm": 0.5, "save_every": 50,
+            },
+            "curriculum": {
+                "updates": 500,
+                "schedule": {
+                    "0": ["do_nothing"],
+                    "50": ["do_nothing", "dogfighter"],
+                    "150": ["dogfighter", "chaser"],
+                    "300": ["chaser", "ace"],
+                    "450": ["ace", "brawler"],
+                },
+            },
+            "transition": {
+                "updates": 200,
+                "start_scripted_fraction": 1.0,
+                "end_scripted_fraction": 0.2,
+                "reset_std": -1.0,
+            },
+            "selfplay": {
+                "updates": 1500,
+                "scripted_fraction": 0.2,
+                "scripted_pool": ["ace", "brawler"],
+                "sampling": "pfsp",
+                "pool_snapshot_every": 50,
+                "pool_max_size": 30,
+                "scripted_eval_every": 20,
+                "scripted_eval_opponent": "brawler",
+                "scripted_eval_matches": 20,
+                "regression_threshold": 0.8,
+            },
+            "rewards": {
+                "damage_dealt": 3.0, "damage_taken": -1.0,
+                "win": 5.0, "lose": -5.0,
+                "approach": 0.0001, "alive": 0.0,
+                "proximity": 0.001, "facing": 0.0005,
+            },
+        }
+
+        if smoke_test:
+            default_uni_config["training"]["n_envs"] = 4
+            default_uni_config["training"]["n_steps"] = 64
+            default_uni_config["curriculum"]["updates"] = 3
+            default_uni_config["transition"]["updates"] = 2
+            default_uni_config["selfplay"]["updates"] = 3
+            default_uni_config["selfplay"]["scripted_eval_every"] = 2
+            default_uni_config["selfplay"]["pool_snapshot_every"] = 2
+            default_uni_config["_tag"] = tag or "unified-smoke"
+            print("Running unified smoke test...")
+        else:
+            default_uni_config["_tag"] = tag or "unified"
+            total = (default_uni_config["curriculum"]["updates"]
+                     + default_uni_config["transition"]["updates"]
+                     + default_uni_config["selfplay"]["updates"])
+            print(f"Launching unified pipeline ({total} total updates)...")
+
+        result = train_unified_modal.remote(default_uni_config)
+        status_str = "PASS" if result["exit_code"] == 0 else "FAIL"
+        print(f"\n{'Smoke test' if smoke_test else 'Unified'}: {status_str} — {result['experiment']} in {result['elapsed_seconds']}s")
         if result.get("eval"):
             print(result["eval"])
         return

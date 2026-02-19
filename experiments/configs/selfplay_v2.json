@@ -1,0 +1,52 @@
+{
+  "script": "train_selfplay",
+  "model": {
+    "hidden": 384,
+    "n_blocks": 3
+  },
+  "training": {
+    "n_envs": 256,
+    "n_steps": 2048,
+    "num_updates": 2000,
+    "lr": 3e-4,
+    "gamma": 0.999,
+    "gae_lambda": 0.95,
+    "clip_eps": 0.2,
+    "vf_coef": 0.5,
+    "ent_coef": 0.005,
+    "action_repeat": 10,
+    "n_epochs": 4,
+    "minibatch_size": 2048,
+    "max_grad_norm": 0.5,
+    "anneal_lr": true,
+    "clip_vloss": true,
+    "randomize": true,
+    "save_every": 50
+  },
+  "selfplay": {
+    "sampling": "mixed",
+    "pool_snapshot_every": 25,
+    "pool_max_size": 40,
+    "bootstrap": "curriculum_final",
+    "scripted_eval_every": 20,
+    "scripted_eval_opponent": "brawler",
+    "scripted_eval_matches": 20,
+    "regression_threshold": 0.8
+  },
+  "rewards": {
+    "damage_dealt": 3.0,
+    "damage_taken": -1.0,
+    "win": 5.0,
+    "lose": -5.0,
+    "approach": 0.0001,
+    "alive": 0.0,
+    "proximity": 0.001,
+    "facing": 0.0005
+  },
+  "modal": {
+    "gpu": "T4",
+    "cpu": 32,
+    "memory": 16384,
+    "timeout": 28800
+  }
+}

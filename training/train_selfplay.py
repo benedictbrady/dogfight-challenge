@@ -25,6 +25,7 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 from model import ActorCritic, OBS_SIZE, ACTION_SIZE
+from naming import make_run_name
 from opponent_pool import OpponentPool
 from slack import slack_notify
 
@@ -60,7 +61,7 @@ def train_selfplay(args):
     print(f"Action repeat: {args.action_repeat} (episode ~{10800 // args.action_repeat} RL steps)")
     print(f"Self-play sampling: {args.sampling}")
 
-    run_name = f"selfplay_{int(time.time())}"
+    run_name = args.run_name or make_run_name("selfplay")
     log_dir = Path(args.log_dir) / run_name
     ckpt_dir = Path(args.checkpoint_dir)
     pool_dir = Path(args.pool_dir)
@@ -293,11 +294,11 @@ def train_selfplay(args):
                     drawn = outcome == "Draw"
                     ep_wins.append(1.0 if won else 0.0)
 
-                    # Update ELO
+                    # Update ELO (symmetric — both learner and opponent adjust)
                     learner_elo = pool.update_learner_elo(
                         learner_elo, opp_entry, won=won, drawn=drawn
                     )
-                    pool.update_elo(opp_entry, won=won, drawn=drawn)
+                    pool.update_elo(opp_entry, learner_elo, won=won, drawn=drawn)
 
                     if won:
                         rollout_wins += 1
@@ -663,6 +664,8 @@ if __name__ == "__main__":
     parser.add_argument("--log-dir", default="training/runs")
     parser.add_argument("--checkpoint-dir", default="training/checkpoints")
     parser.add_argument("--pool-dir", default="training/pool")
+    parser.add_argument("--run-name", type=str, default=None,
+                        help="Mnemonic run name (auto-generated if not provided)")
 
     args = parser.parse_args()
 

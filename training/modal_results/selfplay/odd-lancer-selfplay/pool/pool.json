@@ -1,0 +1,107 @@
+{
+  "hidden": 384,
+  "n_blocks": 3,
+  "max_size": 30,
+  "entries": [
+    {
+      "name": "sp_0000",
+      "path": "sp_0000.pt",
+      "update_num": 0,
+      "elo": 1000.0,
+      "games": 3759,
+      "wins": 2367,
+      "losses": 94,
+      "draws": 1298
+    },
+    {
+      "name": "sp_0002",
+      "path": "sp_0002.pt",
+      "update_num": 2,
+      "elo": 1000.0,
+      "games": 2986,
+      "wins": 2703,
+      "losses": 28,
+      "draws": 255
+    },
+    {
+      "name": "sp_0005",
+      "path": "sp_0005.pt",
+      "update_num": 5,
+      "elo": 1000.0,
+      "games": 4444,
+      "wins": 4442,
+      "losses": 1,
+      "draws": 1
+    },
+    {
+      "name": "sp_0006",
+      "path": "sp_0006.pt",
+      "update_num": 6,
+      "elo": 1000.0,
+      "games": 4353,
+      "wins": 4239,
+      "losses": 28,
+      "draws": 86
+    },
+    {
+      "name": "sp_0008",
+      "path": "sp_0008.pt",
+      "update_num": 8,
+      "elo": 1000.0,
+      "games": 611,
+      "wins": 600,
+      "losses": 3,
+      "draws": 8
+    },
+    {
+      "name": "sp_0009",
+      "path": "sp_0009.pt",
+      "update_num": 9,
+      "elo": 1000.0,
+      "games": 0,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0
+    },
+    {
+      "name": "sp_0011",
+      "path": "sp_0011.pt",
+      "update_num": 11,
+      "elo": 1000.0,
+      "games": 1068,
+      "wins": 1052,
+      "losses": 16,
+      "draws": 0
+    },
+    {
+      "name": "sp_0012",
+      "path": "sp_0012.pt",
+      "update_num": 12,
+      "elo": 1000.0,
+      "games": 2375,
+      "wins": 2294,
+      "losses": 80,
+      "draws": 1
+    },
+    {
+      "name": "sp_0013",
+      "path": "sp_0013.pt",
+      "update_num": 13,
+      "elo": 1000.0,
+      "games": 2713,
+      "wins": 2560,
+      "losses": 153,
+      "draws": 0
+    },
+    {
+      "name": "sp_0024",
+      "path": "sp_0024.pt",
+      "update_num": 24,
+      "elo": 1000.0,
+      "games": 0,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0
+    }
+  ]
+}

@@ -42,7 +42,7 @@ class OpponentPool:
         entry = pool.sample_opponent(method="pfsp")
         opponent_model = pool.load_opponent(entry)
 
-        pool.update_elo(entry, won=True)
+        pool.update_elo(entry, learner_elo=1200.0, won=True)
         pool.save_metadata()
     """
 
@@ -179,14 +179,15 @@ class OpponentPool:
 
         return model
 
-    def update_elo(self, entry: PoolEntry, won: bool, drawn: bool = False):
+    def update_elo(self, entry: PoolEntry, learner_elo: float, won: bool, drawn: bool = False):
         """Update ELO rating for an opponent after a match.
 
-        The learner's ELO is implicit (tracked externally). This updates
-        the opponent's ELO based on whether the learner won/lost/drew.
+        Updates both game counts AND the opponent's ELO symmetrically.
+        If the learner won, the opponent's ELO decreases (and vice versa).
 
         Args:
             entry: The opponent pool entry
+            learner_elo: Current learner ELO (needed for symmetric update)
             won: Whether the learner won (from learner's perspective)
             drawn: Whether the match was a draw
         """
@@ -197,6 +198,16 @@ class OpponentPool:
             entry.wins += 1  # learner won = opponent lost
         else:
             entry.losses += 1  # learner lost = opponent won
+
+        # Symmetric ELO update for the opponent (inverse of learner's outcome)
+        expected_opp = 1.0 / (1.0 + 10.0 ** ((learner_elo - entry.elo) / 400.0))
+        if drawn:
+            actual_opp = 0.5
+        elif won:
+            actual_opp = 0.0  # opponent lost
+        else:
+            actual_opp = 1.0  # opponent won
+        entry.elo += self.ELO_K * (actual_opp - expected_opp)
 
     def update_learner_elo(self, learner_elo: float, opponent_entry: PoolEntry, won: bool, drawn: bool = False) -> float:
         """Compute new learner ELO after a match against a pool opponent.

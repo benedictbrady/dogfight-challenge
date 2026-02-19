@@ -1,0 +1,77 @@
+{
+  "hidden": 384,
+  "n_blocks": 3,
+  "max_size": 30,
+  "entries": [
+    {
+      "name": "sp_0000",
+      "path": "sp_0000.pt",
+      "update_num": 0,
+      "elo": 1000.0,
+      "games": 6825,
+      "wins": 2710,
+      "losses": 164,
+      "draws": 3951
+    },
+    {
+      "name": "sp_0004",
+      "path": "sp_0004.pt",
+      "update_num": 4,
+      "elo": 1000.0,
+      "games": 4751,
+      "wins": 4669,
+      "losses": 37,
+      "draws": 45
+    },
+    {
+      "name": "sp_0007",
+      "path": "sp_0007.pt",
+      "update_num": 7,
+      "elo": 1000.0,
+      "games": 2320,
+      "wins": 2316,
+      "losses": 0,
+      "draws": 4
+    },
+    {
+      "name": "sp_0009",
+      "path": "sp_0009.pt",
+      "update_num": 9,
+      "elo": 1000.0,
+      "games": 745,
+      "wins": 541,
+      "losses": 143,
+      "draws": 61
+    },
+    {
+      "name": "sp_0014",
+      "path": "sp_0014.pt",
+      "update_num": 14,
+      "elo": 1000.0,
+      "games": 1497,
+      "wins": 803,
+      "losses": 394,
+      "draws": 300
+    },
+    {
+      "name": "sp_0019",
+      "path": "sp_0019.pt",
+      "update_num": 19,
+      "elo": 1000.0,
+      "games": 0,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0
+    },
+    {
+      "name": "sp_0020",
+      "path": "sp_0020.pt",
+      "update_num": 20,
+      "elo": 1000.0,
+      "games": 0,
+      "wins": 0,
+      "losses": 0,
+      "draws": 0
+    }
+  ]
+}
