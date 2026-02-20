@@ -146,21 +146,42 @@ def get_dr_ranges(update: int, dr_none_until: int, dr_narrow_until: int) -> tupl
     return DR_FULL, "full"
 
 
+def _default_config_obs() -> np.ndarray:
+    """Return the 13-float normalized config obs for default physics parameters."""
+    return np.array([
+        80.0 / 200.0,     # gravity / norm
+        0.9 / 2.0,        # drag_coeff
+        0.25 / 1.0,       # turn_bleed_coeff
+        250.0 / 500.0,    # max_speed
+        20.0 / 100.0,     # min_speed
+        180.0 / 400.0,    # max_thrust
+        400.0 / 800.0,    # bullet_speed
+        90.0 / 240.0,     # gun_cooldown_ticks
+        60.0 / 180.0,     # bullet_lifetime_ticks
+        5.0 / 10.0,       # max_hp
+        4.0 / 8.0,        # max_turn_rate
+        0.8 / 4.0,        # min_turn_rate
+        0.785 / 3.14159,  # rear_aspect_cone
+    ], dtype=np.float32)
+
+
 def scripted_eval_dr(model, opponent: str, n_matches: int, action_repeat: int,
                      device: torch.device, regime_params: dict = None) -> float:
     """Quick eval against a scripted opponent with config-aware model. Returns win rate."""
     if BatchEnv is None:
         return 0.0  # Rust pyenv not available (e.g., --gpu-sim without build)
+    # BatchEnv doesn't support config obs — append default config manually
+    config_obs = _default_config_obs().reshape(1, -1)  # [1, 13]
     wins = 0
     for i in range(n_matches):
-        env = BatchEnv(1, [opponent], True, seed=i * 7 + 1,
-                       action_repeat=1, include_config_obs=True)
+        env = BatchEnv(1, [opponent], True, seed=i * 7 + 1, action_repeat=1)
         if regime_params:
             env.set_domain_randomization(regime_params)
         obs_np = env.reset()
         done = False
         while not done:
-            obs_t = torch.tensor(obs_np, dtype=torch.float32, device=device)
+            obs_with_config = np.concatenate([obs_np, config_obs], axis=1)
+            obs_t = torch.tensor(obs_with_config, dtype=torch.float32, device=device)
             action = model.get_deterministic_action(obs_t)
             for _ in range(action_repeat):
                 obs_np, rewards, dones, infos = env.step(
@@ -783,7 +804,7 @@ def train_unified_dr(args):
                 model.log_std.fill_(args.transition_reset_std)
             print(f"Reset log_std to {args.transition_reset_std}")
 
-    for update in range(args.transition_updates):
+    for update in range(0 if skip_transition else args.transition_updates):
         progress = update / max(args.transition_updates - 1, 1)
         fraction = args.transition_start_fraction + progress * (args.selfplay_scripted_fraction - args.transition_start_fraction)
         vec_env.set_scripted_fraction(fraction)

@@ -1,7 +1,7 @@
 {
   "script": "train_unified_dr",
   "_gpu_sim": true,
-  "_comment_resume": "To resume: add _name and _resume keys (used for dark-ghost recovery)",
+  "_comment_resume": "To resume: add _name and _resume keys pointing to checkpoint path",
   "model": {
     "hidden": 256,
     "n_blocks": 0,
