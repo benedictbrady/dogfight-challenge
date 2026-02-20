@@ -94,10 +94,6 @@ See `.claude/projects/.../memory/modal-guide.md` for full details. Key rules:
 - Check Slack or Modal dashboard for run status, not CLI commands
 - Training run history tracked in `.claude/projects/.../memory/modal-training-runs.md`
 
-## Sim-Lab (Unrelated Side Project)
-
-`sim-lab/` contains a standalone Python project for AI-assisted physics simulator improvement. It uses a double pendulum dataset from IBM to demonstrate that AI coding agents can iteratively improve physics simulation code against real-world data. **Not related to the dogfight platform** — shares the repo for convenience only. Has its own `requirements.txt` and runs independently via `python sim-lab/evaluate.py` etc.
-
 ## Gotchas
 
 - `ort` crate must be pinned to `2.0.0-rc.11` (pre-release, needs explicit version)
