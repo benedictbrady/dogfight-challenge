@@ -1,4 +1,4 @@
-.PHONY: build test run serve dev viz tournament validate analyze clean
+.PHONY: build test run serve dev viz tournament validate analyze clean pyenv train train-eval export dashboard-parse dashboard-export
 
 # Build the Rust workspace in release mode
 build:
@@ -54,6 +54,35 @@ ANALYZE_SEEDS ?= 5
 LABEL ?=
 analyze:
 	cargo run -p dogfight --release -- analyze --policies $(ANALYZE_POLICIES) --seeds $(ANALYZE_SEEDS) $(if $(LABEL),--label $(LABEL),) --randomize
+
+# Build PyO3 Python module (requires maturin + venv)
+pyenv:
+	cd crates/pyenv && maturin develop --release
+
+# Train RL agent
+CURRICULUM ?= do_nothing:50,dogfighter:100,chaser:150,ace:200
+train:
+	cd training && python train.py --curriculum $(CURRICULUM)
+
+# Evaluate trained model against all opponents
+CKPT ?= training/checkpoints/final.pt
+train-eval:
+	cd training && python eval.py $(CKPT)
+
+# Export trained model to ONNX
+export:
+	cd training && python export_onnx.py $(CKPT)
+
+# Parse TensorBoard events into dashboard JSON
+RUN_DIR ?= training/runs
+dashboard-parse:
+	cd training && python parse_tb.py $(if $(RUN),$(RUN),--all ../$(RUN_DIR))
+
+# Export a checkpoint to ONNX for dashboard replay
+DASHBOARD_CKPT ?=
+DASHBOARD_OUT ?=
+dashboard-export:
+	cd training && python export_onnx.py $(DASHBOARD_CKPT) -o $(DASHBOARD_OUT) --no-validate
 
 # Clean build artifacts
 clean:

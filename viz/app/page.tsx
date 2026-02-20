@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import Link from "next/link";
 import Scene from "./components/Scene";
 import Controls from "./components/Controls";
 import MatchSetup from "./components/MatchSetup";
@@ -72,6 +73,11 @@ export default function Home() {
         <span className="text-sm font-bold text-gray-800 tracking-[0.15em]">
           DOGFIGHT
         </span>
+        <span className="text-xs font-semibold text-gray-800">Match Viz</span>
+        <Link href="/training" className="text-xs text-gray-500 hover:text-gray-700">
+          Training
+        </Link>
+        <div className="w-px h-4 bg-gray-300" />
 
         {/* P0 health bar */}
         <div className="flex items-center gap-2">
