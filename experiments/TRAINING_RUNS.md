@@ -25,6 +25,7 @@
 | 16 | vivid-icarus-selfplay | selfplay v1 | 2000 | DIED ~1200 | Longest v1 run; ELO bug (all=1000) |
 | 17 | loud-ghost-selfplay_v2 | selfplay v2 | 2000 | DIED ~381 | ELO working! Peak 1529 |
 | 18 | tight-saber-selfplay_v2 | selfplay v2 | 2000 | UNKNOWN | Could not download (file conflict) |
+| 19 | nova-maverick-gpu-sim-v2 | unified DR+GPU | 2300 | RUNNING | GPU sim on H100, ~12s/update |
 
 ---
 
@@ -162,9 +163,25 @@ v2 runs use `selfplay_v2.json` config:
 5. **Many early self-play runs died quickly** — possibly crashes in the self-play infrastructure before it stabilized
 6. **Curriculum training is solved** — mean-knight-production achieves 100% vs all scripted opponents
 
+---
+
+## Phase 5: GPU Sim + Config-Aware DR
+
+### nova-maverick-gpu-sim-v2 (Experiment #19, RUNNING)
+- **Date**: 2026-02-19
+- **Type**: Unified DR with **GPU physics sim** (NVIDIA Warp)
+- **Config**: `experiments/configs/unified_dr_gpu_v1.json`
+- **Model**: 768h/4b, obs_dim=59 (46 base + 13 config params)
+- **Training**: 256 envs, 2048 steps, action_repeat=10, **H100 80GB GPU**
+- **Sim**: NVIDIA Warp GPU physics — all physics, observations, rewards, and 5 scripted opponents on GPU
+- **Phases**: curriculum(600) + transition(200) + selfplay(1500) = **2300 updates**
+- **Per-update time**: ~12s (sim ~1.5s, infer ~5s, PPO ~5s) with zero-copy torch↔warp path
+- **Parity tests**: All 6 pass (obs diff <4e-6 vs Rust CPU sim across all 5 opponents)
+- **Estimated runtime**: ~7.7h on H100
+- **Status**: RUNNING
+
 ## Next Steps
 
-- [ ] Run selfplay v2 with `--detach` and longer timeout to completion
-- [ ] Consider unified pipeline (curriculum -> self-play in one run)
-- [ ] Evaluate best self-play checkpoints against scripted opponents
+- [ ] Monitor nova-maverick-gpu-sim-v2 completion
+- [ ] Further GPU sim optimization: move auto-reset to GPU
 - [ ] Export best model to ONNX for submission
