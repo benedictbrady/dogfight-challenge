@@ -5,7 +5,6 @@ members = [
     "crates/validator",
     "crates/server",
     "crates/cli",
-    "crates/pyenv",
 ]
 resolver = "2"
 

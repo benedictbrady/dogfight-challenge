@@ -56,7 +56,7 @@ viz/          # Next.js + React Three Fiber visualization
 - [13:45] Bullet slots (8 slots x 4: rel_x, rel_y, is_friendly, angle)
 - [45] Ticks remaining normalized
 
-**Policy trait** — NOT `Send`. Use `spawn_blocking` in async contexts.
+**Policy trait** — `Send`. Use `spawn_blocking` in async contexts for `Box<dyn Policy>`.
 
 ## Built-in Opponents
 
@@ -85,14 +85,6 @@ HTTP: `GET /api/policies` returns available policy names.
 - `Controls.tsx` — Play/pause, frame scrubber, speed selector
 - `MatchSetup.tsx` — Policy dropdowns, seed, Scramble button, server status
 - `useMatch.ts` — WebSocket hook, frame accumulation, playback timer
-
-## Modal Training
-
-See `.claude/projects/.../memory/modal-guide.md` for full details. Key rules:
-- **Always use `modal run --detach`** for real training runs — without it, closing terminal kills the container
-- **Modal CLI is slow** (~2 min per invocation due to image rebuild) — never run interactively or in parallel
-- Check Slack or Modal dashboard for run status, not CLI commands
-- Training run history tracked in `.claude/projects/.../memory/modal-training-runs.md`
 
 ## Gotchas
 
