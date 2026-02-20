@@ -93,7 +93,7 @@ image = (
         "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
     )
     .env({"PATH": "/root/.cargo/bin:/usr/local/bin:/usr/bin:/bin"})
-    .pip_install("numpy", "tensorboard", "maturin")
+    .pip_install("numpy", "tensorboard", "maturin", "warp-lang")
     .run_commands("pip install torch --index-url https://download.pytorch.org/whl/cu121")
     # Copy crates into image (copy=True bakes into image so maturin build works)
     .add_local_dir("crates/shared", "/app/crates/shared", copy=True)
@@ -443,6 +443,10 @@ def train_unified_modal(config: dict) -> dict:
     if resume:
         cmd.extend(["--resume", resume])
 
+    # GPU sim flag
+    if config.get("_gpu_sim", False):
+        cmd.append("--gpu-sim")
+
     model_cfg = config.get("model", {})
     print(f"=== {exp_name} (unified) ===")
     print(f"Model: {model_cfg.get('hidden', 384)}h / {model_cfg.get('n_blocks', 3)}b")
@@ -485,6 +489,38 @@ def train_unified_modal(config: dict) -> dict:
         "exit_code": proc.returncode,
         "config": config,
         "eval": eval_output,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GPU Sim parity test + benchmark
+# ---------------------------------------------------------------------------
+
+@app.function(
+    image=image,
+    gpu="T4",
+    cpu=8,
+    memory=16384,
+    timeout=600,
+)
+def gpu_sim_test() -> dict:
+    """Run GPU sim parity tests and benchmark on Modal."""
+    import subprocess
+    import time
+
+    t0 = time.time()
+    proc = subprocess.run(
+        ["python", "-m", "gpu_sim.test_parity"],
+        cwd="/app/training",
+        capture_output=True, text=True, timeout=300,
+    )
+    elapsed = time.time() - t0
+
+    return {
+        "exit_code": proc.returncode,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+        "elapsed_seconds": round(elapsed, 1),
     }
 
 
@@ -566,12 +602,24 @@ def main(
     production: bool = False,
     selfplay: bool = False,
     unified: bool = False,
+    gpu_sim_test_flag: bool = False,
     config: str = "",
     bootstrap: str = "",
     download: str = "",
     tag: str = "",
 ):
     import json as _json
+
+    # ----- GPU Sim test -----
+    if gpu_sim_test_flag:
+        print("Running GPU sim parity tests on Modal...")
+        result = gpu_sim_test.remote()
+        print(result["stdout"])
+        if result["stderr"]:
+            print("STDERR:", result["stderr"])
+        status = "PASS" if result["exit_code"] == 0 else "FAIL"
+        print(f"\nGPU sim test: {status} ({result['elapsed_seconds']}s)")
+        return
 
     # ----- Download results -----
     if download:
