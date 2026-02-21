@@ -36,6 +36,7 @@ export interface RunInfo {
   has_metrics: boolean;
   has_pool: boolean;
   checkpoints: string[];
+  onnx_checkpoints: string[];
 }
 
 export interface CheckpointInfo {

@@ -60,8 +60,9 @@ export function useTrainingMetrics(
       initialLoad.current = false;
     }
     try {
+      const statusParam = isLive ? "live" : "completed";
       const res = await fetch(
-        `/api/training/metrics?run=${encodeURIComponent(runName)}`
+        `/api/training/metrics?run=${encodeURIComponent(runName)}&status=${statusParam}`
       );
       if (!res.ok) throw new Error(`Failed to fetch metrics: ${res.status}`);
       const data = await res.json();
@@ -72,7 +73,7 @@ export function useTrainingMetrics(
     } finally {
       setLoading(false);
     }
-  }, [runName]);
+  }, [runName, isLive]);
 
   // Reset when runName changes
   useEffect(() => {
@@ -100,11 +101,15 @@ export function usePoolData(
   const [pool, setPool] = useState<PoolData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const initialLoad = useRef(true);
 
   const refresh = useCallback(async () => {
     if (!runName) return;
-    try {
+    if (initialLoad.current) {
       setLoading(true);
+      initialLoad.current = false;
+    }
+    try {
       const res = await fetch(
         `/api/training/pool?run=${encodeURIComponent(runName)}`
       );
@@ -125,6 +130,7 @@ export function usePoolData(
   }, [runName]);
 
   useEffect(() => {
+    initialLoad.current = true;
     setPool(null);
     setError(null);
     if (runName) refresh();

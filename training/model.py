@@ -4,9 +4,11 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-OBS_SIZE = 46
+SINGLE_FRAME_OBS_SIZE = 56
+FRAME_STACK_SIZE = 4
+OBS_SIZE = SINGLE_FRAME_OBS_SIZE * FRAME_STACK_SIZE  # 224
 ACTION_SIZE = 3
-CONFIG_OBS_SIZE = 13
+CONFIG_OBS_SIZE = 13  # legacy, kept for backward compat
 
 # Log-std constants for continuous action distributions
 LOG_STD_INIT = -1.0
@@ -200,9 +202,9 @@ class ActorOnly(nn.Module):
         return torch.cat([yaw, throttle, shoot], dim=-1)
 
     @staticmethod
-    def from_actor_critic(ac: ActorCritic) -> "ActorOnly":
+    def from_actor_critic(ac: ActorCritic, obs_dim: int = OBS_SIZE) -> "ActorOnly":
         """Extract actor weights from a trained ActorCritic."""
-        actor = ActorOnly(hidden=ac.hidden, n_blocks=ac.n_blocks)
+        actor = ActorOnly(obs_dim=obs_dim, hidden=ac.hidden, n_blocks=ac.n_blocks)
         actor.backbone.load_state_dict(ac.backbone_actor.state_dict())
         actor.cont_head.load_state_dict(ac.cont_head.state_dict())
         actor.shoot_head.load_state_dict(ac.shoot_head.state_dict())

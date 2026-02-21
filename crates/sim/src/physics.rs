@@ -169,7 +169,9 @@ impl SimState {
 
     /// Advance one physics tick.
     pub fn step(&mut self, actions: &[Action; 2]) {
+        // Save previous state for derivative computations (closure rate, angular velocity)
         self.prev_fighters = self.fighters.clone();
+
         for (i, action) in actions.iter().enumerate() {
             if !self.fighters[i].alive {
                 continue;

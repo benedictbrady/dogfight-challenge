@@ -12,6 +12,80 @@ import {
 } from "recharts";
 import type { TrainingMetrics, DataPoint } from "../../lib/training-types";
 
+const MAX_POINTS = 500;
+
+/**
+ * Largest Triangle Three Buckets (LTTB) downsampling.
+ * Reduces a sorted array of {step, value} points to ~targetBuckets points
+ * while preserving the visual shape of the data.
+ */
+function lttbDownsample(
+  points: DataPoint[],
+  targetBuckets: number = MAX_POINTS
+): DataPoint[] {
+  if (points.length <= targetBuckets) return points;
+
+  const out: DataPoint[] = [points[0]]; // Always keep first
+  const bucketSize = (points.length - 2) / (targetBuckets - 2);
+
+  let prevSelected = 0;
+
+  for (let i = 0; i < targetBuckets - 2; i++) {
+    // Current bucket range
+    const bucketStart = Math.floor((i + 0) * bucketSize) + 1;
+    const bucketEnd = Math.min(
+      Math.floor((i + 1) * bucketSize) + 1,
+      points.length - 1
+    );
+
+    // Next bucket range (for computing average)
+    const nextStart = Math.floor((i + 1) * bucketSize) + 1;
+    const nextEnd = Math.min(
+      Math.floor((i + 2) * bucketSize) + 1,
+      points.length - 1
+    );
+
+    // Average of next bucket
+    let avgStep = 0;
+    let avgValue = 0;
+    const nextCount = nextEnd - nextStart;
+    if (nextCount > 0) {
+      for (let j = nextStart; j < nextEnd; j++) {
+        avgStep += points[j].step;
+        avgValue += points[j].value;
+      }
+      avgStep /= nextCount;
+      avgValue /= nextCount;
+    } else {
+      // Last bucket — use the last point
+      avgStep = points[points.length - 1].step;
+      avgValue = points[points.length - 1].value;
+    }
+
+    // Pick point in current bucket forming largest triangle
+    let maxArea = -1;
+    let bestIdx = bucketStart;
+    const prevPoint = points[prevSelected];
+
+    for (let j = bucketStart; j < bucketEnd; j++) {
+      const area = Math.abs(
+        (prevPoint.step - avgStep) * (points[j].value - prevPoint.value) -
+          (prevPoint.step - points[j].step) * (avgValue - prevPoint.value)
+      );
+      if (area > maxArea) {
+        maxArea = area;
+        bestIdx = j;
+      }
+    }
+
+    out.push(points[bestIdx]);
+    prevSelected = bestIdx;
+  }
+
+  out.push(points[points.length - 1]); // Always keep last
+  return out;
+}
+
 const COLORS = {
   blue: "#5b9bf5",
   red: "#f87171",
@@ -186,7 +260,12 @@ export default function MetricsCharts({
     }
     // Only include charts where at least one series has data
     if (Object.keys(seriesMap).length > 0) {
-      charts.push({ def, seriesMap, data: mergeByStep(seriesMap) });
+      // Downsample each series before merging to reduce chart rendering load
+      const downsampled: Record<string, DataPoint[]> = {};
+      for (const [key, pts] of Object.entries(seriesMap)) {
+        downsampled[key] = lttbDownsample(pts);
+      }
+      charts.push({ def, seriesMap, data: mergeByStep(downsampled) });
     }
   }
 

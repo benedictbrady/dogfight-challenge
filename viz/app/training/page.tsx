@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import dynamic from "next/dynamic";
 import {
   useTrainingRuns,
   useTrainingMetrics,
@@ -10,6 +11,11 @@ import {
 import type { RunInfo, RunStatus, TrainingMetrics } from "../lib/training-types";
 import MetricsCharts from "../components/training/MetricsCharts";
 import PoolViewer from "../components/training/PoolViewer";
+
+const CheckpointMatchViewer = dynamic(
+  () => import("../components/training/CheckpointMatchViewer"),
+  { ssr: false }
+);
 
 function StatusDot({ status, size = 6 }: { status: RunStatus; size?: number }) {
   const color =
@@ -680,6 +686,13 @@ export default function TrainingPage() {
         {/* Pool */}
         {!poolLoading && currentRun?.has_pool && <PoolViewer pool={pool} />}
 
+        {/* Checkpoint Match Viewer — only when run has ONNX checkpoints */}
+        {currentRun && currentRun.onnx_checkpoints && currentRun.onnx_checkpoints.length > 0 && (
+          <CheckpointMatchViewer
+            checkpoints={currentRun.onnx_checkpoints}
+            runName={currentRun.name}
+          />
+        )}
 
         {/* Empty */}
         {!selectedRun && !runsLoading && runs.length === 0 && (

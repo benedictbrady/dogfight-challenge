@@ -1,7 +1,7 @@
 use dogfight_shared::*;
 use std::f32::consts::PI;
 
-/// Tactical state derived from the raw observation.
+/// Tactical state derived from the enriched observation (first frame of stacked obs).
 /// Provides high-level situational awareness for all policies.
 pub struct TacticalState {
     // Self state
@@ -56,34 +56,43 @@ pub struct TacticalState {
 }
 
 /// Extract tactical state from raw observation using specific config for denormalization.
+///
+/// Reads from the FIRST frame of the stacked observation (indices 0..56).
+/// New enriched obs layout:
+///   Self:     [0..8)
+///   Opponent: [8..19)
+///   Bullets:  [19..51)
+///   Geometry: [51..55)
+///   Meta:     [55]
 pub fn extract_tactical_state_with_config(obs: &Observation, config: &SimConfig) -> TacticalState {
     let d = &obs.data;
 
-    // Self state (denormalize using config) [0..8)
+    // Self state (denormalize using config)
     let my_speed = d[0] * config.max_speed;
     let my_yaw = f32::atan2(d[2], d[1]);
     let my_hp = d[3];
     let gun_cooldown = d[4];
     let altitude = d[5] * MAX_ALTITUDE;
-    let my_energy = d[7] * MAX_ENERGY;
 
-    // Opponent state [8..19)
+    // Opponent state
     let rel_x = d[8] * ARENA_DIAMETER;
     let rel_y = d[9] * ARENA_DIAMETER;
     let opp_speed = d[10] * config.max_speed;
     let opp_yaw = f32::atan2(d[12], d[11]);
     let opp_hp = d[13];
     let distance = d[14] * ARENA_DIAMETER;
+
+    // Read enriched fields directly from obs where available
     let closing_rate = d[15] * config.max_speed;
-    let opp_energy = d[17] * MAX_ENERGY;
 
-    // Derived angles — read directly from observation [51..55)
-    let angle_to_opp = f32::atan2(rel_y, rel_x);
+    // Derived angles — read from enriched geometry section
     let angle_off_nose = d[51] * PI;
-    // Angle from opponent to me (opposite direction)
     let opp_angle_to_me = d[52] * PI;
+    let angle_to_opp = f32::atan2(rel_y, rel_x);
 
-    // Energy advantage
+    // Energy: use enriched obs values (denormalize)
+    let my_energy = d[7] * MAX_ENERGY;
+    let opp_energy = d[17] * MAX_ENERGY;
     let energy_advantage = if opp_energy > 1.0 {
         my_energy / opp_energy
     } else {
@@ -247,6 +256,8 @@ pub fn altitude_safety(altitude: f32, yaw: f32) -> Option<f32> {
 
 /// Compute bullet threat info from observation.
 /// Returns (nearest_enemy_dist, nearest_enemy_angle, threat_count_within_150m).
+///
+/// Works with any slice (reads bullet data from indices 19..51 of the first frame).
 pub fn compute_bullet_threats(obs: &[f32]) -> (f32, f32, u32) {
     let mut nearest_dist = f32::MAX;
     let mut nearest_angle = 0.0f32;
@@ -254,6 +265,9 @@ pub fn compute_bullet_threats(obs: &[f32]) -> (f32, f32, u32) {
 
     for slot in 0..MAX_BULLET_SLOTS {
         let base = 19 + slot * 4;
+        if base + 3 >= obs.len() {
+            break;
+        }
         let is_friendly = obs[base + 2];
 
         // Only care about enemy bullets

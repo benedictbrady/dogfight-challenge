@@ -28,7 +28,7 @@ from model import ActorCritic, OBS_SIZE, ACTION_SIZE
 from naming import make_run_name
 from opponent_pool import OpponentPool
 from slack import slack_notify
-from utils import save_checkpoint, scripted_eval, compute_gae, EVAL_OPPONENTS
+from utils import save_checkpoint, export_onnx_checkpoint, scripted_eval, compute_gae, EVAL_OPPONENTS
 
 try:
     from dogfight_pyenv import SelfPlayBatchEnv, DogfightEnv
@@ -451,9 +451,11 @@ def train_selfplay(args):
         # Save periodic checkpoint
         if (update + 1) % args.save_every == 0:
             save_checkpoint(model_unwrapped, optimizer, global_step, total_updates, ckpt_dir, f"step_{global_step}")
+            export_onnx_checkpoint(model_unwrapped, ckpt_dir, f"step_{global_step}", args.hidden, args.n_blocks)
 
     # Final checkpoint
     save_checkpoint(model_unwrapped, optimizer, global_step, total_updates, ckpt_dir, "final")
+    export_onnx_checkpoint(model_unwrapped, ckpt_dir, "final", args.hidden, args.n_blocks)
     pool.save_metadata()
     writer.close()
 

@@ -16,6 +16,13 @@ fn normalize_angle(mut a: f32) -> f32 {
 
 impl SimState {
     /// Compute a single enriched observation frame (56 floats) for the given player.
+    ///
+    /// Layout (SINGLE_FRAME_OBS_SIZE = 56 floats):
+    ///   Self state:         [0..8)    8 floats
+    ///   Opponent state:     [8..19)  11 floats
+    ///   Bullets:           [19..51)  32 floats (8 slots × 4)
+    ///   Relative geometry: [51..55)   4 floats
+    ///   Meta:              [55]       1 float
     pub fn observe_single_frame(&self, player: usize) -> SingleFrameObs {
         let mut data = [0.0f32; SINGLE_FRAME_OBS_SIZE];
         let opp = 1 - player;
@@ -31,9 +38,9 @@ impl SimState {
         data[3] = me.hp as f32 / self.config.max_hp as f32;
         data[4] = me.gun_cooldown_ticks as f32 / self.config.gun_cooldown_ticks as f32;
         data[5] = me.position.y / MAX_ALTITUDE;
-        data[6] = me.position.x / ARENA_RADIUS;
+        data[6] = me.position.x / ARENA_RADIUS;                       // NEW: x position
         let my_energy = me.speed * me.speed + 2.0 * self.config.gravity * me.position.y;
-        data[7] = my_energy / MAX_ENERGY;
+        data[7] = my_energy / MAX_ENERGY;                              // NEW: energy
 
         // OPPONENT STATE (11 floats) [8..19)
         let rel = them.position - me.position;
@@ -46,6 +53,7 @@ impl SimState {
         data[13] = them.hp as f32 / self.config.max_hp as f32;
         data[14] = distance / ARENA_DIAMETER;
 
+        // NEW: closure rate (positive = closing)
         let prev_rel = prev_them.position - prev_me.position;
         let prev_distance = prev_rel.length();
         let closure_rate = if self.tick > 0 {
@@ -55,6 +63,7 @@ impl SimState {
         };
         data[15] = (closure_rate / self.config.max_speed).clamp(-1.0, 1.0);
 
+        // NEW: opponent angular velocity
         let angular_velocity = if self.tick > 0 {
             normalize_angle(them.yaw - prev_them.yaw) / DT
         } else {
@@ -62,14 +71,16 @@ impl SimState {
         };
         data[16] = (angular_velocity / MAX_TURN_RATE).clamp(-1.0, 1.0);
 
+        // NEW: opponent energy
         let opp_energy = them.speed * them.speed + 2.0 * self.config.gravity * them.position.y;
         data[17] = opp_energy / MAX_ENERGY;
 
-        let angle_opp_to_me = f32::atan2(-rel.y, -rel.x);
+        // NEW: angle off tail — how far from directly behind the opponent we are
+        let angle_opp_to_me = f32::atan2(-rel.y, -rel.x); // angle from opp to me
         let angle_off_tail = normalize_angle(angle_opp_to_me - them.yaw);
         data[18] = angle_off_tail / PI;
 
-        // BULLETS (8 slots x 4 floats = 32 floats) [19..51)
+        // BULLETS (8 slots × 4 floats = 32 floats) [19..51)
         let mut bullet_entries: Vec<(f32, &Bullet)> = self
             .bullets
             .iter()
@@ -95,10 +106,12 @@ impl SimState {
         let angle_off_nose = normalize_angle(angle_to_opp - me.yaw);
         data[51] = angle_off_nose / PI;
 
-        let opp_angle_to_me_dir = f32::atan2(-rel.y, -rel.x);
-        let opp_angle_off_nose = normalize_angle(opp_angle_to_me_dir - them.yaw);
+        // Opponent's angle_off_nose (how far off their nose we are)
+        let opp_angle_to_me = f32::atan2(-rel.y, -rel.x);
+        let opp_angle_off_nose = normalize_angle(opp_angle_to_me - them.yaw);
         data[52] = opp_angle_off_nose / PI;
 
+        // Relative velocity
         let my_vel_x = me.speed * me.yaw.cos();
         let my_vel_y = me.speed * me.yaw.sin();
         let opp_vel_x = them.speed * them.yaw.cos();
@@ -114,12 +127,22 @@ impl SimState {
     }
 
     /// Build the full stacked observation vector for the given player.
+    ///
+    /// Layout (OBS_SIZE = 224 floats):
+    ///   [current(56), prev_1(56), prev_2(56), prev_3(56)]
+    ///
+    /// Frame history is sampled at decision points (when observe is called).
+    /// First frames are zero-padded.
     pub fn observe(&mut self, player: usize) -> Observation {
         let current = self.observe_single_frame(player);
 
+        // Build stacked observation: [current, history[0], history[1], history[2]]
         let mut data = [0.0f32; OBS_SIZE];
+
+        // Current frame
         data[..SINGLE_FRAME_OBS_SIZE].copy_from_slice(&current.data);
 
+        // Historical frames (zero-padded if not enough history)
         let count = self.obs_history_count[player] as usize;
         for i in 0..3 {
             let dest_start = (i + 1) * SINGLE_FRAME_OBS_SIZE;
@@ -127,8 +150,10 @@ impl SimState {
                 data[dest_start..dest_start + SINGLE_FRAME_OBS_SIZE]
                     .copy_from_slice(&self.obs_history[player][i].data);
             }
+            // else: already zero from initialization
         }
 
+        // Update history ring buffer: shift right, insert current at [0]
         self.obs_history[player][2] = self.obs_history[player][1];
         self.obs_history[player][1] = self.obs_history[player][0];
         self.obs_history[player][0] = current;
@@ -163,8 +188,12 @@ mod tests {
         let mut state = SimState::new();
         let obs0 = state.observe(0);
         let obs1 = state.observe(1);
+
+        // Speed should be identical (first frame only, indices 0 in each)
         assert!((obs0.data[0] - obs1.data[0]).abs() < 0.001);
+        // HP should be identical
         assert!((obs0.data[3] - obs1.data[3]).abs() < 0.001);
+        // Relative positions should be opposite
         assert!((obs0.data[8] + obs1.data[8]).abs() < 0.001);
     }
 
@@ -172,10 +201,15 @@ mod tests {
     fn test_observation_initial_values() {
         let mut state = SimState::new();
         let obs = state.observe(0);
+
+        // Speed should be SPAWN_SPEED / MAX_SPEED
         let expected_speed = SimState::SPAWN_SPEED / MAX_SPEED;
         assert!((obs.data[0] - expected_speed).abs() < 0.001);
+        // HP should be 1.0 (full)
         assert!((obs.data[3] - 1.0).abs() < 0.001);
+        // Gun cooldown should be 0 (ready)
         assert!((obs.data[4] - 0.0).abs() < 0.001);
+        // Ticks remaining should be 1.0
         assert!((obs.data[55] - 1.0).abs() < 0.001);
     }
 
@@ -183,43 +217,79 @@ mod tests {
     fn test_frame_stacking_zero_padding() {
         let mut state = SimState::new();
         let obs = state.observe(0);
+
+        // First observation: frames 1-3 should be all zeros (no history yet)
         for i in SINGLE_FRAME_OBS_SIZE..OBS_SIZE {
-            assert!(obs.data[i].abs() < 0.001, "index {} should be zero, got {}", i, obs.data[i]);
+            assert!(
+                obs.data[i].abs() < 0.001,
+                "Frame history should be zero-padded at index {}, got {}",
+                i,
+                obs.data[i]
+            );
         }
     }
 
     #[test]
     fn test_frame_stacking_accumulation() {
         let mut state = SimState::new();
+
+        // First observe: only current frame, rest zero-padded
         let obs1 = state.observe(0);
         let frame1_speed = obs1.data[0];
+
+        // Step physics to change state
         state.step(&[Action::none(), Action::none()]);
+
+        // Second observe: current + 1 historical frame
         let obs2 = state.observe(0);
-        assert!((obs2.data[SINGLE_FRAME_OBS_SIZE] - frame1_speed).abs() < 0.01);
+        // The previous frame (now at index 1) should match frame1
+        assert!(
+            (obs2.data[SINGLE_FRAME_OBS_SIZE] - frame1_speed).abs() < 0.01,
+            "History frame 1 speed should match previous observation"
+        );
+        // Frame 3 should still be zero
         let frame3_start = 3 * SINGLE_FRAME_OBS_SIZE;
-        assert!(obs2.data[frame3_start].abs() < 0.001);
+        assert!(
+            obs2.data[frame3_start].abs() < 0.001,
+            "Frame 3 should still be zero-padded"
+        );
     }
 
     #[test]
     fn test_derived_features_tick_zero() {
         let state = SimState::new();
         let frame = state.observe_single_frame(0);
-        assert!((frame.data[15]).abs() < 0.001);
-        assert!((frame.data[16]).abs() < 0.001);
-        assert!(frame.data[7] > 0.0);
-        assert!(frame.data[17] > 0.0);
+
+        // At tick 0, derivatives should be 0
+        assert!((frame.data[15]).abs() < 0.001, "closure_rate at tick 0 should be 0");
+        assert!((frame.data[16]).abs() < 0.001, "angular_velocity at tick 0 should be 0");
+
+        // Energy should be positive
+        assert!(frame.data[7] > 0.0, "energy should be positive");
+        assert!(frame.data[17] > 0.0, "opponent energy should be positive");
     }
 
     #[test]
     fn test_history_cleared_on_reset() {
         let mut state = SimState::new();
+
+        // Build up some history
         state.observe(0);
         state.step(&[Action::none(), Action::none()]);
         state.observe(0);
+
+        // Reset (create new state)
         let mut state2 = SimState::new();
         let obs = state2.observe(0);
+
+        // All history frames should be zero
         for i in SINGLE_FRAME_OBS_SIZE..OBS_SIZE {
-            assert!(obs.data[i].abs() < 0.001, "index {} should be zero, got {}", i, obs.data[i]);
+            assert!(
+                obs.data[i].abs() < 0.001,
+                "After reset, history should be zero at index {}, got {}",
+                i,
+                obs.data[i]
+            );
         }
     }
 }

@@ -13,10 +13,44 @@ use dogfight_sim::{run_match, DoNothingPolicy, Policy, SimState};
 use dogfight_validator::OnnxPolicy;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::LazyLock;
 use tower_http::cors::CorsLayer;
 
-/// Available built-in policy names.
-const AVAILABLE_POLICIES: &[&str] = &["dogfighter", "chaser", "ace", "brawler", "do_nothing", "neural"];
+/// Built-in scripted policy names (shown in GUI dropdown).
+const BUILTIN_POLICIES: &[&str] = &["ace", "brawler"];
+
+/// Discover neural model names from .onnx files in models/ and baselines/ directories.
+fn discover_neural_policies() -> Vec<String> {
+    let mut names = Vec::new();
+    for dir in &["models", "baselines"] {
+        let dir_path = Path::new(dir);
+        if let Ok(entries) = std::fs::read_dir(dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "onnx") {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        if !names.contains(&stem.to_string()) {
+                            names.push(stem.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Also check for legacy policy.onnx in project root
+    if names.is_empty() && Path::new("policy.onnx").exists() {
+        names.push("neural".to_string());
+    }
+    names.sort();
+    names
+}
+
+/// All available policy names (built-in + discovered neural models).
+static ALL_POLICIES: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut policies: Vec<String> = BUILTIN_POLICIES.iter().map(|s| s.to_string()).collect();
+    policies.extend(discover_neural_policies());
+    policies
+});
 
 // ---------------------------------------------------------------------------
 // Serde types for WebSocket messages
@@ -77,9 +111,7 @@ struct ErrorMessage {
 
 /// Resolve a policy by name, returning `None` for unknown names.
 ///
-/// Supports built-in names and ONNX model paths:
-/// - `"neural"` loads `policy.onnx` from the current directory
-/// - Any name ending in `.onnx` is loaded as a file path
+/// Supports built-in names, discovered neural models from models/, and .onnx paths.
 fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
     match name {
         "do_nothing" => Some(Box::new(DoNothingPolicy)),
@@ -90,15 +122,15 @@ fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
         "neural" => load_onnx_policy(Path::new("policy.onnx")),
         path if path.ends_with(".onnx") => load_onnx_policy(Path::new(path)),
         other => {
-            // Try models/ directory
-            let models_path = Path::new("models").join(format!("{}.onnx", other));
-            if models_path.exists() {
-                return load_onnx_policy(&models_path);
+            // Check models/ directory for a matching .onnx file
+            let model_path = Path::new("models").join(format!("{other}.onnx"));
+            if model_path.exists() {
+                return load_onnx_policy(&model_path);
             }
-            // Try baselines/ directory
-            let baselines_path = Path::new("baselines").join(format!("{}.onnx", other));
-            if baselines_path.exists() {
-                return load_onnx_policy(&baselines_path);
+            // Check baselines/ directory as fallback
+            let baseline_path = Path::new("baselines").join(format!("{other}.onnx"));
+            if baseline_path.exists() {
+                return load_onnx_policy(&baseline_path);
             }
             None
         }
@@ -109,10 +141,8 @@ fn is_onnx_policy(name: &str) -> bool {
     if name == "neural" || name.ends_with(".onnx") {
         return true;
     }
-    // Check models/ and baselines/ directories
-    let models_path = Path::new("models").join(format!("{}.onnx", name));
-    let baselines_path = Path::new("baselines").join(format!("{}.onnx", name));
-    models_path.exists() || baselines_path.exists()
+    Path::new("models").join(format!("{name}.onnx")).exists()
+        || Path::new("baselines").join(format!("{name}.onnx")).exists()
 }
 
 fn load_onnx_policy(path: &Path) -> Option<Box<dyn Policy>> {
@@ -132,9 +162,9 @@ fn load_onnx_policy(path: &Path) -> Option<Box<dyn Policy>> {
 // HTTP / WebSocket handlers
 // ---------------------------------------------------------------------------
 
-/// GET /api/policies -- returns available built-in policy names.
-async fn get_policies() -> Json<Vec<&'static str>> {
-    Json(AVAILABLE_POLICIES.to_vec())
+/// GET /api/policies -- returns all available policy names (built-in + neural models).
+async fn get_policies() -> Json<Vec<String>> {
+    Json(ALL_POLICIES.clone())
 }
 
 /// Query params for GET /api/spawn.
@@ -184,7 +214,7 @@ async fn handle_socket(mut socket: WebSocket) {
 
     // 2. Validate policy names before resolving (to send error over WS).
     fn is_valid_policy(name: &str) -> bool {
-        AVAILABLE_POLICIES.contains(&name) || name.ends_with(".onnx")
+        ALL_POLICIES.iter().any(|p| p == name) || name.ends_with(".onnx")
     }
 
     for (label, name) in [("p0", &req.p0), ("p1", &req.p1)] {
@@ -209,7 +239,7 @@ async fn handle_socket(mut socket: WebSocket) {
         let mut p0 = try_resolve_policy(&p0_name).expect("policy already validated");
         let mut p1 = try_resolve_policy(&p1_name).expect("policy already validated");
 
-        // ONNX models use CONTROL_PERIOD (12Hz decisions at 120Hz physics)
+        // ONNX models run at 12Hz (CONTROL_PERIOD ticks per decision)
         let p0_period = if is_onnx_policy(&p0_name) { CONTROL_PERIOD } else { 1 };
         let p1_period = if is_onnx_policy(&p1_name) { CONTROL_PERIOD } else { 1 };
 

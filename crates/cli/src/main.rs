@@ -111,30 +111,30 @@ fn resolve_policy(name: &str) -> Box<dyn Policy> {
             }
         }
         other => {
-            // Try models/ directory
-            let models_path = std::path::Path::new("models").join(format!("{}.onnx", other));
-            if models_path.exists() {
-                match OnnxPolicy::load(&models_path) {
+            // Check models/ directory
+            let model_path = Path::new("models").join(format!("{other}.onnx"));
+            if model_path.exists() {
+                match OnnxPolicy::load(&model_path) {
                     Ok(policy) => {
-                        println!("Loaded ONNX policy from {}", models_path.display());
+                        println!("Loaded ONNX policy from {}", model_path.display());
                         return Box::new(policy);
                     }
                     Err(e) => {
-                        eprintln!("Failed to load ONNX policy '{}': {e}", models_path.display());
+                        eprintln!("Failed to load ONNX policy '{}': {e}", model_path.display());
                         std::process::exit(1);
                     }
                 }
             }
-            // Try baselines/ directory
-            let baselines_path = std::path::Path::new("baselines").join(format!("{}.onnx", other));
-            if baselines_path.exists() {
-                match OnnxPolicy::load(&baselines_path) {
+            // Check baselines/ directory
+            let baseline_path = Path::new("baselines").join(format!("{other}.onnx"));
+            if baseline_path.exists() {
+                match OnnxPolicy::load(&baseline_path) {
                     Ok(policy) => {
-                        println!("Loaded ONNX policy from {}", baselines_path.display());
+                        println!("Loaded ONNX policy from {}", baseline_path.display());
                         return Box::new(policy);
                     }
                     Err(e) => {
-                        eprintln!("Failed to load ONNX policy '{}': {e}", baselines_path.display());
+                        eprintln!("Failed to load ONNX policy '{}': {e}", baseline_path.display());
                         std::process::exit(1);
                     }
                 }

@@ -35,7 +35,7 @@ from model import ActorCritic, OBS_SIZE, CONFIG_OBS_SIZE, ACTION_SIZE
 from naming import make_run_name
 from opponent_pool import OpponentPool
 from slack import slack_notify
-from utils import save_checkpoint, compute_gae, EVAL_OPPONENTS
+from utils import save_checkpoint, export_onnx_checkpoint, compute_gae, EVAL_OPPONENTS
 
 try:
     from dogfight_pyenv import SelfPlayBatchEnv, BatchEnv
@@ -741,8 +741,10 @@ def train_unified_dr(args):
 
             if (update + 1) % args.save_every == 0:
                 save_checkpoint(model_unwrapped, optimizer, global_step, total_updates, ckpt_dir, f"step_{global_step}")
+                export_onnx_checkpoint(model_unwrapped, ckpt_dir, f"step_{global_step}", args.hidden, args.n_blocks)
 
         save_checkpoint(model_unwrapped, optimizer, global_step, total_updates, ckpt_dir, "curriculum_final")
+        export_onnx_checkpoint(model_unwrapped, ckpt_dir, "curriculum_final", args.hidden, args.n_blocks)
 
         # Quick eval at end of curriculum (default regime)
         model.eval()
@@ -887,8 +889,10 @@ def train_unified_dr(args):
 
         if (update + 1) % args.save_every == 0:
             save_checkpoint(model_unwrapped, optimizer, global_step, total_updates, ckpt_dir, f"step_{global_step}")
+            export_onnx_checkpoint(model_unwrapped, ckpt_dir, f"step_{global_step}", args.hidden, args.n_blocks)
 
     save_checkpoint(model_unwrapped, optimizer, global_step, total_updates, ckpt_dir, "transition_final")
+    export_onnx_checkpoint(model_unwrapped, ckpt_dir, "transition_final", args.hidden, args.n_blocks)
 
     slack_notify(
         f":bridge_at_night: *{run_name}* transition done — entering self-play+DR "
@@ -1048,11 +1052,13 @@ def train_unified_dr(args):
 
         if (update + 1) % args.save_every == 0:
             save_checkpoint(model_unwrapped, optimizer, global_step, total_updates, ckpt_dir, f"step_{global_step}")
+            export_onnx_checkpoint(model_unwrapped, ckpt_dir, f"step_{global_step}", args.hidden, args.n_blocks)
 
     # =====================================================================
     # Final
     # =====================================================================
     save_checkpoint(model_unwrapped, optimizer, global_step, total_updates, ckpt_dir, "final")
+    export_onnx_checkpoint(model_unwrapped, ckpt_dir, "final", args.hidden, args.n_blocks)
     pool.save_metadata()
     writer.close()
 

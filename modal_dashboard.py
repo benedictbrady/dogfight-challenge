@@ -7,14 +7,15 @@ Deploy:
     modal deploy modal_dashboard.py
 
 Endpoints (after deploy):
-    GET  /runs           — list all training runs (with status)
-    GET  /metrics?run=X  — parsed TensorBoard metrics for a run
-    GET  /pool?run=X     — pool.json for a self-play run
-    GET  /config?run=X   — config.json for a run
-    GET  /reparse?run=X  — force re-parse TB events
-    GET  /hide?run=X     — hide a run from the dashboard
-    GET  /unhide?run=X   — unhide a run
-    GET  /delete?run=X   — permanently delete a run from the volume
+    GET  /runs                       — list all training runs (with status)
+    GET  /metrics?run=X              — parsed TensorBoard metrics for a run
+    GET  /pool?run=X                 — pool.json for a self-play run
+    GET  /config?run=X               — config.json for a run
+    GET  /checkpoint-onnx?run=X&name=Y — download ONNX checkpoint binary
+    GET  /metrics?run=X&reparse=true — force re-parse TB events
+    GET  /hide?run=X                 — hide a run from the dashboard
+    GET  /unhide?run=X               — unhide a run
+    GET  /delete?run=X               — permanently delete a run from the volume
 """
 
 import modal
@@ -105,10 +106,16 @@ def _discover_runs() -> list[dict]:
 
         ckpt_dir = os.path.join(path, "checkpoints")
         checkpoints = []
+        onnx_checkpoints = []
         if os.path.isdir(ckpt_dir):
             checkpoints = sorted([
                 f for f in os.listdir(ckpt_dir)
                 if f.endswith(".pt")
+            ])
+            onnx_checkpoints = sorted([
+                f.replace(".onnx", "")
+                for f in os.listdir(ckpt_dir)
+                if f.endswith(".onnx")
             ])
 
         if has_tb or has_config:
@@ -123,6 +130,7 @@ def _discover_runs() -> list[dict]:
                 "has_pool": has_pool,
                 "has_tb": has_tb,
                 "checkpoints": checkpoints,
+                "onnx_checkpoints": onnx_checkpoints,
             })
 
     if not os.path.isdir(RESULTS_DIR):
@@ -235,14 +243,18 @@ def runs():
             "has_pool": r["has_pool"],
             "has_tb": r["has_tb"],
             "checkpoints": r["checkpoints"],
+            "onnx_checkpoints": r["onnx_checkpoints"],
         })
     return result
 
 
 @app.function(image=image, volumes={"/results": vol}, min_containers=1, timeout=300)
 @modal.fastapi_endpoint(method="GET")
-def metrics(run: str):
-    """Return parsed TensorBoard metrics for a run."""
+def metrics(run: str, reparse: bool = False):
+    """Return parsed TensorBoard metrics for a run.
+
+    Pass reparse=true to force re-parse TB events (replaces old /reparse endpoint).
+    """
     import traceback
 
     try:
@@ -254,9 +266,9 @@ def metrics(run: str):
         metrics_path = os.path.join(run_path, "metrics.json")
         is_live = _get_run_status(run_path) == "live"
 
-        # For live runs, always re-parse to get fresh data.
+        # For live runs or forced reparse, always re-parse to get fresh data.
         # For completed/failed runs, use cached metrics.json if available.
-        if not is_live and os.path.isfile(metrics_path):
+        if not reparse and not is_live and os.path.isfile(metrics_path):
             with open(metrics_path) as f:
                 return json.load(f)
 
@@ -317,30 +329,6 @@ def config(run: str):
         return json.load(f)
 
 
-@app.function(image=image, volumes={"/results": vol})
-@modal.fastapi_endpoint(method="GET")
-def reparse(run: str):
-    """Force re-parse TensorBoard events."""
-    vol.reload()
-    run_path = _find_run_path(run)
-    if not run_path:
-        return JSONResponse({"error": f"Run not found: {run}"}, status_code=404)
-
-    parsed = _parse_tb(run_path)
-    if not parsed:
-        return JSONResponse({"error": f"No TensorBoard data found for: {run}"}, status_code=404)
-
-    metrics_path = os.path.join(run_path, "metrics.json")
-    with open(metrics_path, "w") as f:
-        json.dump(parsed, f)
-    vol.commit()
-
-    total_metrics = sum(
-        1 for v in parsed.values() if isinstance(v, dict)
-        for _ in v.values()
-    )
-    return {"status": "ok", "run": run, "metrics_count": total_metrics}
-
 
 @app.function(image=image, volumes={"/results": vol})
 @modal.fastapi_endpoint(method="GET")
@@ -384,3 +372,19 @@ def delete(run: str):
 
     vol.commit()
     return {"status": "ok", "deleted": run}
+
+
+@app.function(image=image, volumes={"/results": vol}, min_containers=1)
+@modal.fastapi_endpoint(method="GET")
+def checkpoint_onnx(run: str, name: str):
+    """Serve a checkpoint ONNX file."""
+    from fastapi.responses import FileResponse
+
+    vol.reload()
+    run_path = _find_run_path(run)
+    if not run_path:
+        return JSONResponse({"error": f"Run not found: {run}"}, status_code=404)
+    onnx_path = os.path.join(run_path, "checkpoints", f"{name}.onnx")
+    if not os.path.isfile(onnx_path):
+        return JSONResponse({"error": f"ONNX checkpoint not found: {name}"}, status_code=404)
+    return FileResponse(onnx_path, media_type="application/octet-stream", filename=f"{name}.onnx")

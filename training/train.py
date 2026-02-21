@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from model import ActorCritic, OBS_SIZE, ACTION_SIZE
 from naming import make_run_name
-from utils import save_checkpoint
+from utils import save_checkpoint, export_onnx_checkpoint
 
 # Try to import the Rust env; helpful error if not built yet.
 try:
@@ -279,8 +279,10 @@ def train(args):
 
         if (update + 1) % args.save_every == 0:
             save_checkpoint(model, optimizer, global_step, total_updates, ckpt_dir, f"step_{global_step}")
+            export_onnx_checkpoint(model, ckpt_dir, f"step_{global_step}")
 
     save_checkpoint(model, optimizer, global_step, total_updates, ckpt_dir, "final")
+    export_onnx_checkpoint(model, ckpt_dir, "final")
     writer.close()
     print(f"\nTraining complete. Final checkpoint saved to {ckpt_dir}/final.pt")
 

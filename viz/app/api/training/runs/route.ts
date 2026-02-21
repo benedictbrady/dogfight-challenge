@@ -29,12 +29,14 @@ export async function GET() {
           has_metrics: boolean;
           has_pool: boolean;
           checkpoints: string[];
+          onnx_checkpoints?: string[];
         }) => ({
           name: r.name,
           status: r.status ?? "completed",
           has_metrics: r.has_metrics,
           has_pool: r.has_pool,
           checkpoints: r.checkpoints,
+          onnx_checkpoints: r.onnx_checkpoints ?? [],
         })
       );
       return NextResponse.json(runs);
@@ -69,15 +71,19 @@ export async function GET() {
           has_pool = true;
         } catch {}
         let checkpoints: string[] = [];
+        let onnx_checkpoints: string[] = [];
         try {
           const cpDir = path.join(runDir, "checkpoints");
           const files = await fs.readdir(cpDir);
           checkpoints = files
+            .filter((f) => f.endsWith(".pt"))
+            .sort();
+          onnx_checkpoints = files
             .filter((f) => f.endsWith(".onnx"))
             .map((f) => f.replace(/\.onnx$/, ""))
             .sort();
         } catch {}
-        return { name, status: "completed" as const, has_metrics, has_pool, checkpoints };
+        return { name, status: "completed" as const, has_metrics, has_pool, checkpoints, onnx_checkpoints };
       })
     );
 
