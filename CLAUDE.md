@@ -50,11 +50,13 @@ viz/          # Next.js + React Three Fiber visualization
 **Action** — `[yaw_input, throttle, shoot]` (3 floats)
 - yaw_input: [-1, 1], throttle: [0, 1], shoot: > 0 fires
 
-**Observation** — 46 floats fed to policies:
-- [0:6] Self state (speed, cos/sin yaw, hp, cooldown, altitude)
-- [6:13] Opponent relative state (rel_pos, speed, heading, hp, distance)
-- [13:45] Bullet slots (8 slots x 4: rel_x, rel_y, is_friendly, angle)
-- [45] Ticks remaining normalized
+**Observation** — 224 floats (4 stacked frames of 56 floats each):
+- Each frame: [0:8] Self state (speed, cos/sin yaw, hp, cooldown, altitude, x_pos, energy)
+- [8:19] Opponent state (rel_pos, speed, heading, hp, distance, closure_rate, angular_vel, energy, angle_off_tail)
+- [19:51] Bullet slots (8 slots x 4: rel_x, rel_y, is_friendly, angle)
+- [51:55] Relative geometry (angle_off_nose, opp_angle_off_nose, rel_vel_x, rel_vel_y)
+- [55] Ticks remaining normalized
+- Frame stacking: [current(56), prev_1(56), prev_2(56), prev_3(56)]
 
 **Policy trait** — `Send`. Use `spawn_blocking` in async contexts for `Box<dyn Policy>`.
 
@@ -90,6 +92,6 @@ HTTP: `GET /api/policies` returns available policy names.
 
 - `ort` crate must be pinned to `2.0.0-rc.11` (pre-release, needs explicit version)
 - `glam` needs `serde` feature enabled for Vec2 serialization
-- serde can't derive for `[f32; 46]` (arrays > 32) — uses custom serialize/deserialize
+- serde can't derive for `[f32; 224]` (arrays > 32) — uses custom serialize/deserialize
 - Frame streaming is 30fps (every 4th physics tick)
 - CORS is permissive on the server for local dev

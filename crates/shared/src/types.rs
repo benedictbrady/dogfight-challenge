@@ -107,6 +107,20 @@ impl Default for Action {
     }
 }
 
+/// A single enriched observation frame (56 floats).
+#[derive(Debug, Clone, Copy)]
+pub struct SingleFrameObs {
+    pub data: [f32; crate::SINGLE_FRAME_OBS_SIZE],
+}
+
+impl Default for SingleFrameObs {
+    fn default() -> Self {
+        Self {
+            data: [0.0f32; crate::SINGLE_FRAME_OBS_SIZE],
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Observation {
     pub data: [f32; crate::OBS_SIZE],

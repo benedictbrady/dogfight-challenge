@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_ace_produces_actions() {
-        let state = SimState::new();
+        let mut state = SimState::new();
         let obs = state.observe(0);
         let mut ace = AcePolicy::new();
         let action = ace.act(&obs);

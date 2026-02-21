@@ -12,6 +12,12 @@ pub struct SimState {
     pub tick: u32,
     pub stats: MatchStats,
     pub config: SimConfig,
+    /// Previous tick's fighter states (for computing derivatives like closure rate).
+    pub prev_fighters: [FighterState; 2],
+    /// Per-player observation frame history (last 3 frames, newest at index 0).
+    pub obs_history: [[SingleFrameObs; 3]; 2],
+    /// Per-player count of frames observed so far (for zero-padding logic).
+    pub obs_history_count: [u32; 2],
 }
 
 impl SimState {
@@ -24,27 +30,29 @@ impl SimState {
 
     pub fn new_with_config(config: SimConfig) -> Self {
         let hp = config.max_hp;
+        let fighters = [
+            FighterState {
+                position: Vec2::new(-200.0, 300.0),
+                yaw: 0.0,
+                speed: Self::SPAWN_SPEED,
+                hp,
+                gun_cooldown_ticks: 0,
+                alive: true,
+                stall_ticks: 0,
+            },
+            FighterState {
+                position: Vec2::new(200.0, 300.0),
+                yaw: std::f32::consts::PI,
+                speed: Self::SPAWN_SPEED,
+                hp,
+                gun_cooldown_ticks: 0,
+                alive: true,
+                stall_ticks: 0,
+            },
+        ];
         Self {
-            fighters: [
-                FighterState {
-                    position: Vec2::new(-200.0, 300.0),
-                    yaw: 0.0,
-                    speed: Self::SPAWN_SPEED,
-                    hp,
-                    gun_cooldown_ticks: 0,
-                    alive: true,
-                    stall_ticks: 0,
-                },
-                FighterState {
-                    position: Vec2::new(200.0, 300.0),
-                    yaw: std::f32::consts::PI,
-                    speed: Self::SPAWN_SPEED,
-                    hp,
-                    gun_cooldown_ticks: 0,
-                    alive: true,
-                    stall_ticks: 0,
-                },
-            ],
+            prev_fighters: fighters.clone(),
+            fighters,
             bullets: Vec::new(),
             tick: 0,
             stats: MatchStats {
@@ -56,6 +64,8 @@ impl SimState {
                 p1_shots: 0,
             },
             config,
+            obs_history: Default::default(),
+            obs_history_count: [0; 2],
         }
     }
 
@@ -78,27 +88,29 @@ impl SimState {
         let speed0 = rng.gen_range((config.min_speed + 15.0)..80.0f32);
         let speed1 = rng.gen_range((config.min_speed + 15.0)..80.0f32);
 
+        let fighters = [
+            FighterState {
+                position: Vec2::new(-x_offset, alt0),
+                yaw: yaw0,
+                speed: speed0,
+                hp,
+                gun_cooldown_ticks: 0,
+                alive: true,
+                stall_ticks: 0,
+            },
+            FighterState {
+                position: Vec2::new(x_offset, alt1),
+                yaw: yaw1,
+                speed: speed1,
+                hp,
+                gun_cooldown_ticks: 0,
+                alive: true,
+                stall_ticks: 0,
+            },
+        ];
         Self {
-            fighters: [
-                FighterState {
-                    position: Vec2::new(-x_offset, alt0),
-                    yaw: yaw0,
-                    speed: speed0,
-                    hp,
-                    gun_cooldown_ticks: 0,
-                    alive: true,
-                    stall_ticks: 0,
-                },
-                FighterState {
-                    position: Vec2::new(x_offset, alt1),
-                    yaw: yaw1,
-                    speed: speed1,
-                    hp,
-                    gun_cooldown_ticks: 0,
-                    alive: true,
-                    stall_ticks: 0,
-                },
-            ],
+            prev_fighters: fighters.clone(),
+            fighters,
             bullets: Vec::new(),
             tick: 0,
             stats: MatchStats {
@@ -110,6 +122,8 @@ impl SimState {
                 p1_shots: 0,
             },
             config,
+            obs_history: Default::default(),
+            obs_history_count: [0; 2],
         }
     }
 
@@ -155,6 +169,7 @@ impl SimState {
 
     /// Advance one physics tick.
     pub fn step(&mut self, actions: &[Action; 2]) {
+        self.prev_fighters = self.fighters.clone();
         for (i, action) in actions.iter().enumerate() {
             if !self.fighters[i].alive {
                 continue;

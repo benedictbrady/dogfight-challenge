@@ -111,6 +111,34 @@ fn resolve_policy(name: &str) -> Box<dyn Policy> {
             }
         }
         other => {
+            // Try models/ directory
+            let models_path = std::path::Path::new("models").join(format!("{}.onnx", other));
+            if models_path.exists() {
+                match OnnxPolicy::load(&models_path) {
+                    Ok(policy) => {
+                        println!("Loaded ONNX policy from {}", models_path.display());
+                        return Box::new(policy);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to load ONNX policy '{}': {e}", models_path.display());
+                        std::process::exit(1);
+                    }
+                }
+            }
+            // Try baselines/ directory
+            let baselines_path = std::path::Path::new("baselines").join(format!("{}.onnx", other));
+            if baselines_path.exists() {
+                match OnnxPolicy::load(&baselines_path) {
+                    Ok(policy) => {
+                        println!("Loaded ONNX policy from {}", baselines_path.display());
+                        return Box::new(policy);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to load ONNX policy '{}': {e}", baselines_path.display());
+                        std::process::exit(1);
+                    }
+                }
+            }
             eprintln!(
                 "Unknown policy '{}'. Valid options: chaser, dogfighter, ace, brawler, do_nothing, neural, or a .onnx file path.",
                 other

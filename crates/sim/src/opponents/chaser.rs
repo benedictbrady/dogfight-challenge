@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_chaser_produces_actions() {
-        let state = SimState::new();
+        let mut state = SimState::new();
         let obs = state.observe(0);
         let mut chaser = ChaserPolicy::new();
         let action = chaser.act(&obs);
