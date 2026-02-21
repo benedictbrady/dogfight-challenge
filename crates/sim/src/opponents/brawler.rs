@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_brawler_produces_actions() {
-        let state = SimState::new();
+        let mut state = SimState::new();
         let obs = state.observe(0);
         let mut brawler = BrawlerPolicy::new();
         let action = brawler.act(&obs);

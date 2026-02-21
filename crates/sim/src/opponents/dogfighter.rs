@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_dogfighter_produces_actions() {
-        let state = SimState::new();
+        let mut state = SimState::new();
         let obs = state.observe(0);
         let mut df = DogfighterPolicy::new();
         let action = df.act(&obs);

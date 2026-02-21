@@ -89,12 +89,30 @@ fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
         "brawler" => Some(Box::new(BrawlerPolicy::new())),
         "neural" => load_onnx_policy(Path::new("policy.onnx")),
         path if path.ends_with(".onnx") => load_onnx_policy(Path::new(path)),
-        _ => None,
+        other => {
+            // Try models/ directory
+            let models_path = Path::new("models").join(format!("{}.onnx", other));
+            if models_path.exists() {
+                return load_onnx_policy(&models_path);
+            }
+            // Try baselines/ directory
+            let baselines_path = Path::new("baselines").join(format!("{}.onnx", other));
+            if baselines_path.exists() {
+                return load_onnx_policy(&baselines_path);
+            }
+            None
+        }
     }
 }
 
 fn is_onnx_policy(name: &str) -> bool {
-    name == "neural" || name.ends_with(".onnx")
+    if name == "neural" || name.ends_with(".onnx") {
+        return true;
+    }
+    // Check models/ and baselines/ directories
+    let models_path = Path::new("models").join(format!("{}.onnx", name));
+    let baselines_path = Path::new("baselines").join(format!("{}.onnx", name));
+    models_path.exists() || baselines_path.exists()
 }
 
 fn load_onnx_policy(path: &Path) -> Option<Box<dyn Policy>> {
@@ -191,9 +209,9 @@ async fn handle_socket(mut socket: WebSocket) {
         let mut p0 = try_resolve_policy(&p0_name).expect("policy already validated");
         let mut p1 = try_resolve_policy(&p1_name).expect("policy already validated");
 
-        // ONNX models were trained with action_repeat=10, so set control_period=10
-        let p0_period = if is_onnx_policy(&p0_name) { 10 } else { 1 };
-        let p1_period = if is_onnx_policy(&p1_name) { 10 } else { 1 };
+        // ONNX models use CONTROL_PERIOD (12Hz decisions at 120Hz physics)
+        let p0_period = if is_onnx_policy(&p0_name) { CONTROL_PERIOD } else { 1 };
+        let p1_period = if is_onnx_policy(&p1_name) { CONTROL_PERIOD } else { 1 };
 
         let match_config = MatchConfig {
             seed,

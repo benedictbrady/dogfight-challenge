@@ -21,9 +21,9 @@ pub enum ValidationError {
     FileTooLarge(usize, usize),
     #[error("Disallowed op: {0}")]
     DisallowedOp(String),
-    #[error("Invalid input shape: expected [1, 46] or [N, 46], got {0:?}")]
+    #[error("Invalid input shape: expected [1, {OBS_SIZE}] or [N, {OBS_SIZE}], got {0:?}")]
     InvalidInputShape(Vec<i64>),
-    #[error("Invalid output shape: expected [1, 3] or [N, 3], got {0:?}")]
+    #[error("Invalid output shape: expected [1, {ACTION_SIZE}] or [N, {ACTION_SIZE}], got {0:?}")]
     InvalidOutputShape(Vec<i64>),
     #[error("Too many parameters: {0} (max {1})")]
     TooManyParameters(usize, usize),

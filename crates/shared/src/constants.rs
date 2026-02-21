@@ -48,9 +48,17 @@ pub const REAR_ASPECT_CONE: f32 = 0.785; // PI/4 = 45° half-angle
 pub const GUN_COOLDOWN_SECS: f32 = GUN_COOLDOWN_TICKS as f32 / TICK_RATE as f32;
 
 // Observation
-pub const OBS_SIZE: usize = 46;
+pub const SINGLE_FRAME_OBS_SIZE: usize = 56;
+pub const FRAME_STACK_SIZE: usize = 4;
+pub const OBS_SIZE: usize = SINGLE_FRAME_OBS_SIZE * FRAME_STACK_SIZE; // 224
 pub const ACTION_SIZE: usize = 3;
 pub const MAX_BULLET_SLOTS: usize = 8;
+
+// Control
+pub const CONTROL_PERIOD: u32 = 10; // 12Hz decisions at 120Hz physics
+
+// Derived constants for observation normalization
+pub const MAX_ENERGY: f32 = MAX_SPEED * MAX_SPEED + 2.0 * GRAVITY * MAX_ALTITUDE;
 
 // Scoring
 pub const WIN_ELIMINATION_POINTS: u32 = 3;

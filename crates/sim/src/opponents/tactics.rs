@@ -1,7 +1,7 @@
 use dogfight_shared::*;
 use std::f32::consts::PI;
 
-/// Tactical state derived from the raw 46-float observation.
+/// Tactical state derived from the raw observation.
 /// Provides high-level situational awareness for all policies.
 pub struct TacticalState {
     // Self state
@@ -59,48 +59,37 @@ pub struct TacticalState {
 pub fn extract_tactical_state_with_config(obs: &Observation, config: &SimConfig) -> TacticalState {
     let d = &obs.data;
 
-    // Self state (denormalize using config)
+    // Self state (denormalize using config) [0..8)
     let my_speed = d[0] * config.max_speed;
     let my_yaw = f32::atan2(d[2], d[1]);
     let my_hp = d[3];
     let gun_cooldown = d[4];
     let altitude = d[5] * MAX_ALTITUDE;
+    let my_energy = d[7] * MAX_ENERGY;
 
-    // Opponent state
-    let rel_x = d[6] * ARENA_DIAMETER;
-    let rel_y = d[7] * ARENA_DIAMETER;
-    let opp_speed = d[8] * config.max_speed;
-    let opp_yaw = f32::atan2(d[10], d[9]);
-    let opp_hp = d[11];
-    let distance = d[12] * ARENA_DIAMETER;
+    // Opponent state [8..19)
+    let rel_x = d[8] * ARENA_DIAMETER;
+    let rel_y = d[9] * ARENA_DIAMETER;
+    let opp_speed = d[10] * config.max_speed;
+    let opp_yaw = f32::atan2(d[12], d[11]);
+    let opp_hp = d[13];
+    let distance = d[14] * ARENA_DIAMETER;
+    let closing_rate = d[15] * config.max_speed;
+    let opp_energy = d[17] * MAX_ENERGY;
 
-    // Derived angles
+    // Derived angles — read directly from observation [51..55)
     let angle_to_opp = f32::atan2(rel_y, rel_x);
-    let angle_off_nose = angle_diff(angle_to_opp, my_yaw);
+    let angle_off_nose = d[51] * PI;
     // Angle from opponent to me (opposite direction)
-    let angle_opp_to_me = f32::atan2(-rel_y, -rel_x);
-    let opp_angle_to_me = angle_diff(angle_opp_to_me, opp_yaw);
+    let opp_angle_to_me = d[52] * PI;
 
-    // Closing rate: projection of relative velocity onto the line between us
-    let my_vx = my_speed * my_yaw.cos();
-    let my_vy = my_speed * my_yaw.sin();
-    let opp_vx = opp_speed * opp_yaw.cos();
-    let opp_vy = opp_speed * opp_yaw.sin();
-    let closing_rate = if distance > 1.0 {
-        (rel_x * (my_vx - opp_vx) + rel_y * (my_vy - opp_vy)) / distance
-    } else {
-        0.0
-    };
-
-    // Energy: v^2 + 2*g*h (simplified energy proxy)
-    let my_energy = my_speed * my_speed + 2.0 * config.gravity * altitude;
-    let opp_altitude = altitude + rel_y;
-    let opp_energy = opp_speed * opp_speed + 2.0 * config.gravity * opp_altitude;
+    // Energy advantage
     let energy_advantage = if opp_energy > 1.0 {
         my_energy / opp_energy
     } else {
         2.0
     };
+    let opp_altitude = altitude + rel_y;
     let altitude_advantage = altitude - opp_altitude;
 
     // Behind checks: I'm behind opponent if they'd need to turn > 120 deg to face me
@@ -115,9 +104,9 @@ pub fn extract_tactical_state_with_config(obs: &Observation, config: &SimConfig)
 
     // Bullet threats
     let (nearest_enemy_bullet_dist, nearest_enemy_bullet_angle, enemy_bullet_threat_count) =
-        compute_bullet_threats(d);
+        compute_bullet_threats(&d[..]);
 
-    let ticks_remaining_frac = d[45];
+    let ticks_remaining_frac = d[55];
 
     TacticalState {
         my_speed,
@@ -258,13 +247,13 @@ pub fn altitude_safety(altitude: f32, yaw: f32) -> Option<f32> {
 
 /// Compute bullet threat info from observation.
 /// Returns (nearest_enemy_dist, nearest_enemy_angle, threat_count_within_150m).
-pub fn compute_bullet_threats(obs: &[f32; OBS_SIZE]) -> (f32, f32, u32) {
+pub fn compute_bullet_threats(obs: &[f32]) -> (f32, f32, u32) {
     let mut nearest_dist = f32::MAX;
     let mut nearest_angle = 0.0f32;
     let mut threat_count = 0u32;
 
     for slot in 0..MAX_BULLET_SLOTS {
-        let base = 13 + slot * 4;
+        let base = 19 + slot * 4;
         let is_friendly = obs[base + 2];
 
         // Only care about enemy bullets
@@ -370,7 +359,7 @@ mod tests {
     #[test]
     fn test_extract_tactical_state() {
         use crate::physics::SimState;
-        let state = SimState::new();
+        let mut state = SimState::new();
         let obs = state.observe(0);
         let ts = extract_tactical_state_with_config(&obs, &SimConfig::default());
 
