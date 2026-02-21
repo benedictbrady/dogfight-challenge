@@ -99,31 +99,31 @@ fn test_brawler_beats_do_nothing() {
 }
 
 #[test]
-fn test_chaser_vs_dogfighter() {
-    // With rear-aspect armor, chaser's pressure style dominates dogfighter
-    let mut ch_wins = 0;
+fn test_brawler_vs_ace_multi_seed() {
+    // Brawler's close-range perpendicular style dominates ace across seeds
+    let mut bw_wins = 0;
 
     for seed in 0..10 {
         let config = MatchConfig {
             seed,
-            p0_name: "chaser".into(),
-            p1_name: "dogfighter".into(),
+            p0_name: "brawler".into(),
+            p1_name: "ace".into(),
             ..Default::default()
         };
-        let mut p0 = ChaserPolicy::new();
-        let mut p1 = DogfighterPolicy::new();
+        let mut p0 = BrawlerPolicy::new();
+        let mut p1 = AcePolicy::new();
 
         let replay = run_match(&config, &mut p0, &mut p1);
         if replay.result.outcome == MatchOutcome::Player0Win {
-            ch_wins += 1;
+            bw_wins += 1;
         }
     }
 
-    println!("Chaser vs Dogfighter (10 seeds): CH wins={}", ch_wins);
+    println!("Brawler vs Ace (10 seeds): BW wins={}", bw_wins);
     assert!(
-        ch_wins >= 5,
-        "Chaser should beat Dogfighter majority. CH wins: {}/10",
-        ch_wins
+        bw_wins >= 5,
+        "Brawler should beat Ace majority. BW wins: {}/10",
+        bw_wins
     );
 }
 
@@ -182,9 +182,8 @@ fn test_ace_deterministic() {
 
 #[test]
 fn test_match_completion_time() {
-    // With 5 HP + rear-aspect armor, matches take longer.
-    // Verify brawler vs ace finishes by elimination (brawler's perpendicular
-    // style is most effective with rear-aspect armor).
+    // With high gravity + rear-aspect armor, brawler vs ace may go to timeout
+    // but brawler should still win (HP advantage or elimination).
     let config = MatchConfig {
         seed: 42,
         p0_name: "brawler".into(),
@@ -196,9 +195,11 @@ fn test_match_completion_time() {
 
     let replay = run_match(&config, &mut p0, &mut p1);
 
-    assert!(
-        replay.result.final_tick < MAX_TICKS,
-        "Brawler vs Ace should not draw to timeout. Ended at tick {} with p0_hp={} p1_hp={}",
+    assert_eq!(
+        replay.result.outcome,
+        MatchOutcome::Player0Win,
+        "Brawler should beat Ace. Got {:?} at tick {} with p0_hp={} p1_hp={}",
+        replay.result.outcome,
         replay.result.final_tick,
         replay.result.stats.p0_hp,
         replay.result.stats.p1_hp,
@@ -281,22 +282,19 @@ fn test_all_policies_beat_do_nothing_multi_seed() {
 
 #[test]
 fn test_matchup_balance_overview() {
-    // Verify expected matchup directions with rear-aspect armor.
+    // Verify expected matchup directions with high gravity + rear-aspect armor.
     // The sim is fully deterministic (no RNG), so all seeds produce the same winner.
     //
-    // New balance hierarchy (post rear-aspect armor + 5HP):
-    //   brawler > ace > chaser > dogfighter
-    //   brawler > chaser
-    //   ace > dogfighter
-    //   chaser > dogfighter
+    // Balance hierarchy (gravity=130 + rear-aspect armor + 5HP):
+    //   brawler > {dogfighter, ace} > chaser
     //
-    // Brawler's perpendicular fighting style benefits most from rear-aspect armor.
+    // High gravity rewards energy-efficient styles: brawler's close-range turns
+    // dominate. Chaser vs dogfighter is position-dependent (too close to assert).
     let expected_winners: Vec<(&str, &str, &str)> = vec![
+        ("dogfighter", "ace", "dogfighter"),    // dogfighter beats ace
         ("ace", "chaser", "ace"),               // ace beats chaser
         ("brawler", "ace", "brawler"),          // brawler beats ace
         ("brawler", "chaser", "brawler"),       // brawler beats chaser
-        ("chaser", "dogfighter", "chaser"),     // chaser beats dogfighter
-        ("ace", "dogfighter", "ace"),           // ace beats dogfighter
     ];
 
     for (p0, p1, expected) in &expected_winners {
