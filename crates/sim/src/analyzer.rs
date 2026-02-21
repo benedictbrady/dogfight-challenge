@@ -21,6 +21,12 @@ pub struct BattleMetrics {
     pub elimination_rate: f32,
     /// Weighted composite score 0-100.
     pub dynamism_score: f32,
+    /// Number of times HP advantage swaps between fighters.
+    pub lead_changes: u32,
+    /// Gaussian quality score for match duration (peak at 45s, sigma=20s). 0-1.
+    pub duration_quality: f32,
+    /// Composite interestingness score 0-100 incorporating dynamism + lead_changes + duration_quality.
+    pub interestingness_score: f32,
 }
 
 /// Analyze a replay and compute battle metrics.
@@ -37,6 +43,9 @@ pub fn analyze(replay: &Replay) -> BattleMetrics {
             avg_combat_speed: 0.0,
             elimination_rate: 0.0,
             dynamism_score: 0.0,
+            lead_changes: 0,
+            duration_quality: 0.0,
+            interestingness_score: 0.0,
         };
     }
 
@@ -181,6 +190,42 @@ pub fn analyze(replay: &Replay) -> BattleMetrics {
         MatchEndReason::Timeout => 0.0,
     };
 
+    // --- Lead changes ---
+    let mut lead_changes = 0u32;
+    let max_hp = replay.config.sim_config.max_hp;
+    // Track who has HP advantage: -1 = p1 leads, 0 = tied, 1 = p0 leads
+    let mut prev_leader: i8 = 0;
+    for frame in frames {
+        let p0_hp = frame.fighters[0].hp;
+        let p1_hp = frame.fighters[1].hp;
+        // Only count once both have taken damage (not initial equal HP)
+        if p0_hp == max_hp && p1_hp == max_hp {
+            continue;
+        }
+        let leader = if p0_hp > p1_hp {
+            1i8
+        } else if p1_hp > p0_hp {
+            -1i8
+        } else {
+            0i8
+        };
+        if leader != 0 && prev_leader != 0 && leader != prev_leader {
+            lead_changes += 1;
+        }
+        if leader != 0 {
+            prev_leader = leader;
+        }
+    }
+
+    // --- Duration quality ---
+    // Gaussian centered at 45s, sigma=20s
+    let match_duration_secs = replay.result.final_tick as f32 / TICK_RATE as f32;
+    let duration_center = 45.0f32;
+    let duration_sigma = 20.0f32;
+    let duration_quality = (-(match_duration_secs - duration_center).powi(2)
+        / (2.0 * duration_sigma * duration_sigma))
+        .exp();
+
     // --- Dynamism score (weighted composite 0-100) ---
     // Lower circling = better (inverted)
     let circ_score = (1.0 - circling_index) * 25.0;
@@ -202,6 +247,12 @@ pub fn analyze(replay: &Replay) -> BattleMetrics {
     let dynamism_score = circ_score + speed_score + alt_score + engage_score
         + hit_score + elim_score + first_hit_score;
 
+    // --- Interestingness score (composite 0-100) ---
+    // 60% dynamism + 20% lead changes + 20% duration quality
+    let lead_score = (lead_changes as f32 / 4.0).min(1.0) * 20.0; // capped at 4 lead changes
+    let dur_score = duration_quality * 20.0;
+    let interestingness_score = dynamism_score * 0.6 + lead_score + dur_score;
+
     BattleMetrics {
         circling_index,
         speed_variance,
@@ -212,5 +263,8 @@ pub fn analyze(replay: &Replay) -> BattleMetrics {
         avg_combat_speed,
         elimination_rate,
         dynamism_score,
+        lead_changes,
+        duration_quality,
+        interestingness_score,
     }
 }

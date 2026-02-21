@@ -1,4 +1,4 @@
-.PHONY: build test run serve dev viz tournament validate analyze clean pyenv train train-eval export dashboard-parse dashboard-export
+.PHONY: build test run serve dev viz tournament validate analyze sweep clean pyenv train train-eval export dashboard-parse dashboard-export
 
 # Build the Rust workspace in release mode
 build:
@@ -54,6 +54,19 @@ ANALYZE_SEEDS ?= 5
 LABEL ?=
 analyze:
 	cargo run -p dogfight --release -- analyze --policies $(ANALYZE_POLICIES) --seeds $(ANALYZE_SEEDS) $(if $(LABEL),--label $(LABEL),) --randomize
+
+# Sweep physics parameters
+SWEEP_PARAM ?=
+SWEEP_STEPS ?= 11
+SWEEP_SEEDS ?= 5
+SWEEP_POLICIES ?= chaser,ace,brawler
+SWEEP_OUTPUT ?=
+sweep:
+	cargo run -p dogfight --release -- sweep \
+		$(if $(SWEEP_PARAM),--param $(SWEEP_PARAM),) \
+		--steps $(SWEEP_STEPS) --seeds $(SWEEP_SEEDS) \
+		--policies $(SWEEP_POLICIES) \
+		$(if $(SWEEP_OUTPUT),--output $(SWEEP_OUTPUT),)
 
 # Build PyO3 Python module (requires maturin + venv)
 pyenv:

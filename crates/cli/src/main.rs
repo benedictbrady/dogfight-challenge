@@ -1,3 +1,5 @@
+mod sweep;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -82,6 +84,41 @@ enum Commands {
         /// Use randomized spawns
         #[arg(long)]
         randomize: bool,
+    },
+
+    /// Sweep physics parameters to find optimal fight quality
+    Sweep {
+        /// Single parameter to sweep (omit to sweep all 13)
+        #[arg(long)]
+        param: Option<String>,
+
+        /// Number of values to test per parameter
+        #[arg(long, default_value_t = 11)]
+        steps: usize,
+
+        /// Number of seeds per matchup
+        #[arg(long, default_value_t = 5)]
+        seeds: u32,
+
+        /// Comma-separated list of policy names
+        #[arg(long, default_value = "chaser,ace,brawler")]
+        policies: String,
+
+        /// Output CSV file path
+        #[arg(long)]
+        output: Option<PathBuf>,
+
+        /// After sweeping, validate best-per-param config vs default
+        #[arg(long)]
+        validate: bool,
+
+        /// Use randomized spawn positions
+        #[arg(long)]
+        randomize: bool,
+
+        /// Greedy forward-selection to find best combined config
+        #[arg(long)]
+        optimize: bool,
     },
 }
 
@@ -172,6 +209,26 @@ fn main() {
             label,
             randomize,
         } => cmd_analyze(&policies, seeds, label.as_deref(), randomize),
+
+        Commands::Sweep {
+            param,
+            steps,
+            seeds,
+            policies,
+            output,
+            validate,
+            randomize,
+            optimize,
+        } => sweep::cmd_sweep(
+            param.as_deref(),
+            steps,
+            seeds,
+            &policies,
+            output,
+            validate,
+            randomize,
+            optimize,
+        ),
     }
 }
 

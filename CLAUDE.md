@@ -66,7 +66,7 @@ viz/          # Next.js + React Three Fiber visualization
 
 ## Built-in Opponents
 
-`do_nothing` < `dogfighter` < `chaser` < `ace` < `brawler` (verified by tests + tournament)
+`do_nothing` < `chaser` < `ace` < `dogfighter` < `brawler` (verified by tests + tournament)
 
 - **DoNothing**: No inputs. Falls from sky.
 - **Chaser**: Pressure pursuit with yo-yo maneuvers, bullet evasion, crossing aim when behind
