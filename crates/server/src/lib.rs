@@ -16,13 +16,10 @@ use std::path::Path;
 use std::sync::LazyLock;
 use tower_http::cors::CorsLayer;
 
-/// Built-in scripted policy names (shown in GUI dropdown).
-const BUILTIN_POLICIES: &[&str] = &["ace", "brawler"];
-
-/// Discover neural model names from .onnx files in models/ and baselines/ directories.
-fn discover_neural_policies() -> Vec<String> {
+/// Discover ONNX model names from baselines/ and models/ directories.
+fn discover_onnx_policies() -> Vec<String> {
     let mut names = Vec::new();
-    for dir in &["models", "baselines"] {
+    for dir in &["baselines", "models"] {
         let dir_path = Path::new(dir);
         if let Ok(entries) = std::fs::read_dir(dir_path) {
             for entry in entries.flatten() {
@@ -37,20 +34,13 @@ fn discover_neural_policies() -> Vec<String> {
             }
         }
     }
-    // Also check for legacy policy.onnx in project root
-    if names.is_empty() && Path::new("policy.onnx").exists() {
-        names.push("neural".to_string());
-    }
     names.sort();
     names
 }
 
-/// All available policy names (built-in + discovered neural models).
-static ALL_POLICIES: LazyLock<Vec<String>> = LazyLock::new(|| {
-    let mut policies: Vec<String> = BUILTIN_POLICIES.iter().map(|s| s.to_string()).collect();
-    policies.extend(discover_neural_policies());
-    policies
-});
+/// All available policy names shown in the GUI (ONNX models only).
+/// Scripted Rust policies are still available internally via try_resolve_policy().
+static ALL_POLICIES: LazyLock<Vec<String>> = LazyLock::new(|| discover_onnx_policies());
 
 // ---------------------------------------------------------------------------
 // Serde types for WebSocket messages
@@ -111,38 +101,43 @@ struct ErrorMessage {
 
 /// Resolve a policy by name, returning `None` for unknown names.
 ///
-/// Supports built-in names, discovered neural models from models/, and .onnx paths.
+/// Priority: baselines/ ONNX > models/ ONNX > .onnx path > scripted Rust fallback.
 fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
+    // 1. Check baselines/ directory (BC-trained imitation models)
+    let baseline_path = Path::new("baselines").join(format!("{name}.onnx"));
+    if baseline_path.exists() {
+        return load_onnx_policy(&baseline_path);
+    }
+
+    // 2. Check models/ directory (RL-trained models)
+    let model_path = Path::new("models").join(format!("{name}.onnx"));
+    if model_path.exists() {
+        return load_onnx_policy(&model_path);
+    }
+
+    // 3. Direct .onnx path
+    if name.ends_with(".onnx") {
+        return load_onnx_policy(Path::new(name));
+    }
+
+    // 4. Scripted Rust fallback (used by CLI/tests, not shown in GUI)
     match name {
         "do_nothing" => Some(Box::new(DoNothingPolicy)),
         "chaser" => Some(Box::new(ChaserPolicy::new())),
         "dogfighter" => Some(Box::new(DogfighterPolicy::new())),
         "ace" => Some(Box::new(AcePolicy::new())),
         "brawler" => Some(Box::new(BrawlerPolicy::new())),
-        "neural" => load_onnx_policy(Path::new("policy.onnx")),
-        path if path.ends_with(".onnx") => load_onnx_policy(Path::new(path)),
-        other => {
-            // Check models/ directory for a matching .onnx file
-            let model_path = Path::new("models").join(format!("{other}.onnx"));
-            if model_path.exists() {
-                return load_onnx_policy(&model_path);
-            }
-            // Check baselines/ directory as fallback
-            let baseline_path = Path::new("baselines").join(format!("{other}.onnx"));
-            if baseline_path.exists() {
-                return load_onnx_policy(&baseline_path);
-            }
-            None
-        }
+        _ => None,
     }
 }
 
+/// All policies shown in the GUI are ONNX — they all run at 12Hz.
 fn is_onnx_policy(name: &str) -> bool {
-    if name == "neural" || name.ends_with(".onnx") {
+    if name.ends_with(".onnx") {
         return true;
     }
-    Path::new("models").join(format!("{name}.onnx")).exists()
-        || Path::new("baselines").join(format!("{name}.onnx")).exists()
+    Path::new("baselines").join(format!("{name}.onnx")).exists()
+        || Path::new("models").join(format!("{name}.onnx")).exists()
 }
 
 fn load_onnx_policy(path: &Path) -> Option<Box<dyn Policy>> {
