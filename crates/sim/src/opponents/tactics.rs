@@ -232,8 +232,8 @@ pub fn yaw_toward(desired: f32, current: f32, gain: f32) -> f32 {
 /// Emergency altitude safety override. Returns Some(yaw_input) if an emergency
 /// pull-up or push-down is needed, None otherwise.
 pub fn altitude_safety(altitude: f32, yaw: f32) -> Option<f32> {
-    // Emergency ground avoidance
-    if altitude < 70.0 && yaw.sin() < -0.3 {
+    // Emergency ground avoidance (ground = death)
+    if altitude < 100.0 && yaw.sin() < -0.1 {
         let pull_up = if yaw.cos() > 0.0 { 1.0 } else { -1.0 };
         return Some(pull_up);
     }

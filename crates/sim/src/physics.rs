@@ -219,7 +219,10 @@ impl SimState {
             // Integrate position
             let forward = f.forward();
             f.position += forward * f.speed * DT;
-            apply_boundaries(f);
+            if apply_boundaries(f) {
+                f.alive = false;
+                return;
+            }
 
             // Cooldown still ticks during stall
             if f.gun_cooldown_ticks > 0 {
@@ -260,7 +263,10 @@ impl SimState {
         f.position += forward * f.speed * DT;
 
         // Apply arena boundaries
-        apply_boundaries(f);
+        if apply_boundaries(f) {
+            f.alive = false;
+            return;
+        }
 
         // Tick gun cooldown
         if f.gun_cooldown_ticks > 0 {
@@ -270,7 +276,8 @@ impl SimState {
         // Spawn bullet if shooting
         if action.shoot && f.gun_cooldown_ticks == 0 {
             let velocity = forward * cfg.bullet_speed;
-            let spawn_pos = f.position + forward * (FIGHTER_RADIUS + BULLET_RADIUS + 1.0);
+            let raw_spawn = f.position + forward * (FIGHTER_RADIUS + BULLET_RADIUS + 1.0);
+            let spawn_pos = Vec2::new(wrap_x(raw_spawn.x), raw_spawn.y);
             self.bullets.push(Bullet {
                 position: spawn_pos,
                 velocity,
@@ -290,6 +297,7 @@ impl SimState {
     fn step_bullets(&mut self) {
         for bullet in &mut self.bullets {
             bullet.position += bullet.velocity * DT;
+            bullet.position.x = wrap_x(bullet.position.x);
             if bullet.ticks_remaining > 0 {
                 bullet.ticks_remaining -= 1;
             }
@@ -311,7 +319,8 @@ impl SimState {
                     continue;
                 }
 
-                let dist_sq = (fighter.position - bullet.position).length_squared();
+                let rel = wrapped_rel(bullet.position, fighter.position);
+                let dist_sq = rel.length_squared();
                 if dist_sq <= collision_dist_sq {
                     // Rear-aspect armor check: bullets from behind glance off
                     let bullet_dir = bullet.velocity.normalize();
@@ -391,39 +400,70 @@ fn normalize_angle(mut a: f32) -> f32 {
     a
 }
 
-/// Apply arena boundary forces and hard clamps (rectangular: horizontal + ground/ceiling).
-fn apply_boundaries(f: &mut FighterState) {
-    // Horizontal boundaries (x axis)
-    let abs_x = f.position.x.abs();
-    if abs_x > BOUNDARY_START_HORIZ {
-        let penetration =
-            ((abs_x - BOUNDARY_START_HORIZ) / (ARENA_RADIUS - BOUNDARY_START_HORIZ)).clamp(0.0, 1.0);
-        let force = penetration * penetration * BOUNDARY_FORCE;
-        f.position.x -= f.position.x.signum() * force * DT;
+/// Canonicalize x into [-ARENA_RADIUS, ARENA_RADIUS] via wrapping.
+pub fn wrap_x(x: f32) -> f32 {
+    let mut x = x;
+    while x > ARENA_RADIUS {
+        x -= ARENA_DIAMETER;
     }
-    f.position.x = f.position.x.clamp(-ARENA_RADIUS, ARENA_RADIUS);
+    while x < -ARENA_RADIUS {
+        x += ARENA_DIAMETER;
+    }
+    x
+}
 
-    // Ground boundary (y=0)
-    if f.position.y < ALT_BOUNDARY_LOW {
-        let penetration =
-            ((ALT_BOUNDARY_LOW - f.position.y) / ALT_BOUNDARY_LOW).clamp(0.0, 1.0);
-        let force = penetration * penetration * BOUNDARY_FORCE;
-        f.position.y += force * DT;
+/// Shortest-path relative vector from `b` to `a` with x-wrapping.
+/// Returns (a - b) adjusted so |dx| <= ARENA_RADIUS.
+pub fn wrapped_rel(a: Vec2, b: Vec2) -> Vec2 {
+    let mut dx = a.x - b.x;
+    if dx > ARENA_RADIUS {
+        dx -= ARENA_DIAMETER;
+    } else if dx < -ARENA_RADIUS {
+        dx += ARENA_DIAMETER;
     }
-    if f.position.y < 0.0 {
-        f.position.y = 0.0;
+    Vec2::new(dx, a.y - b.y)
+}
+
+/// Shortest-path relative x from `bx` to `ax` with wrapping.
+pub fn wrapped_rel_x(ax: f32, bx: f32) -> f32 {
+    let mut dx = ax - bx;
+    if dx > ARENA_RADIUS {
+        dx -= ARENA_DIAMETER;
+    } else if dx < -ARENA_RADIUS {
+        dx += ARENA_DIAMETER;
+    }
+    dx
+}
+
+/// Wrapped distance between two positions.
+pub fn wrapped_distance(a: Vec2, b: Vec2) -> f32 {
+    wrapped_rel(a, b).length()
+}
+
+/// Apply arena boundaries. Returns `true` if the fighter hit the ground (death).
+fn apply_boundaries(f: &mut FighterState) -> bool {
+    // Horizontal: wrap
+    f.position.x = wrap_x(f.position.x);
+
+    // Ground: death
+    if f.position.y <= GROUND_DEATH_ALTITUDE {
+        return true;
     }
 
-    // Ceiling boundary (y=MAX_ALTITUDE)
+    // Ceiling: speed drain + hard clamp
     if f.position.y > ALT_BOUNDARY_HIGH {
         let penetration =
             ((f.position.y - ALT_BOUNDARY_HIGH) / (MAX_ALTITUDE - ALT_BOUNDARY_HIGH)).clamp(0.0, 1.0);
-        let force = penetration * penetration * BOUNDARY_FORCE;
-        f.position.y -= force * DT;
+        f.speed -= penetration * penetration * CEILING_SPEED_DRAIN * DT;
+        if f.speed < MIN_SPEED {
+            f.speed = MIN_SPEED;
+        }
     }
     if f.position.y > MAX_ALTITUDE {
         f.position.y = MAX_ALTITUDE;
     }
+
+    false
 }
 
 #[cfg(test)]
@@ -551,22 +591,31 @@ mod tests {
 
     #[test]
     fn test_arena_boundary_horizontal() {
+        // Horizontal boundary now wraps instead of clamping
         let mut state = SimState::new();
-        state.fighters[0].position = Vec2::new(600.0, 300.0);
+        state.fighters[0].position = Vec2::new(499.0, 300.0);
+        state.fighters[0].yaw = 0.0; // facing right
+        state.fighters[0].speed = 150.0;
 
-        state.step(&[Action::none(), Action::none()]);
+        // Step enough to cross the boundary
+        for _ in 0..20 {
+            state.step(&[Action { yaw_input: 0.0, throttle: 1.0, shoot: false }, Action::none()]);
+        }
 
-        assert!(state.fighters[0].position.x <= ARENA_RADIUS + 1.0);
+        // Should have wrapped to negative x
+        assert!(state.fighters[0].position.x < 0.0,
+            "Fighter should wrap to negative x, got {}", state.fighters[0].position.x);
     }
 
     #[test]
     fn test_arena_boundary_ground() {
+        // Ground is now fatal
         let mut state = SimState::new();
-        state.fighters[0].position = Vec2::new(0.0, -50.0);
+        state.fighters[0].position = Vec2::new(0.0, 3.0);
 
         state.step(&[Action::none(), Action::none()]);
 
-        assert!(state.fighters[0].position.y >= 0.0);
+        assert!(!state.fighters[0].alive, "Fighter at ground level should die");
     }
 
     #[test]
@@ -577,6 +626,113 @@ mod tests {
         state.step(&[Action::none(), Action::none()]);
 
         assert!(state.fighters[0].position.y <= MAX_ALTITUDE + 1.0);
+    }
+
+    #[test]
+    fn test_ground_death() {
+        let mut state = SimState::new();
+        // Point down at low altitude
+        state.fighters[0].yaw = -std::f32::consts::FRAC_PI_2;
+        state.fighters[0].speed = 100.0;
+        state.fighters[0].position = Vec2::new(0.0, 20.0);
+
+        // Step until they hit the ground
+        for _ in 0..120 {
+            state.step(&[Action::none(), Action::none()]);
+            if !state.fighters[0].alive {
+                break;
+            }
+        }
+
+        assert!(!state.fighters[0].alive, "Fighter diving into ground should die");
+    }
+
+    #[test]
+    fn test_horizontal_wrap() {
+        assert!((wrap_x(510.0) - (-490.0)).abs() < 0.01);
+        assert!((wrap_x(-510.0) - 490.0).abs() < 0.01);
+        assert!((wrap_x(200.0) - 200.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_horizontal_wrap_bullet() {
+        let mut state = SimState::new();
+        state.fighters[0].position = Vec2::new(490.0, 300.0);
+        state.fighters[0].yaw = 0.0; // facing right
+
+        let shoot = Action { yaw_input: 0.0, throttle: 0.0, shoot: true };
+        state.step(&[shoot, Action::none()]);
+        assert!(!state.bullets.is_empty());
+
+        // Advance bullet across wrap boundary
+        for _ in 0..10 {
+            state.step(&[Action::none(), Action::none()]);
+        }
+
+        // Bullet should have wrapped to negative x
+        let bullet_x = state.bullets.iter()
+            .find(|b| b.ticks_remaining > 0)
+            .map(|b| b.position.x);
+        if let Some(x) = bullet_x {
+            assert!(x < 0.0, "Bullet should wrap to negative x, got {}", x);
+        }
+    }
+
+    #[test]
+    fn test_collision_across_wrap() {
+        let mut state = SimState::new();
+        // P0 near right edge shooting right, P1 near left edge
+        state.fighters[0].position = Vec2::new(490.0, 300.0);
+        state.fighters[0].yaw = 0.0; // facing right
+        state.fighters[1].position = Vec2::new(-490.0, 300.0);
+        state.fighters[1].yaw = std::f32::consts::PI; // facing left
+
+        let shoot = Action { yaw_input: 0.0, throttle: 0.0, shoot: true };
+        state.step(&[shoot, Action::none()]);
+
+        // Run until hit or bullet expires
+        let no_action = [Action::none(), Action::none()];
+        for _ in 0..60 {
+            state.step(&no_action);
+        }
+
+        // P1 should have taken damage (bullet wraps and hits)
+        assert!(state.fighters[1].hp < MAX_HP,
+            "Bullet should hit across wrap boundary. P1 HP={}", state.fighters[1].hp);
+    }
+
+    #[test]
+    fn test_ceiling_speed_drain() {
+        let mut state = SimState::new();
+        state.fighters[0].position = Vec2::new(0.0, 580.0);
+        state.fighters[0].yaw = std::f32::consts::FRAC_PI_2; // pointing up
+        state.fighters[0].speed = 150.0;
+        let initial_speed = state.fighters[0].speed;
+
+        state.step(&[Action { yaw_input: 0.0, throttle: 0.0, shoot: false }, Action::none()]);
+
+        // Speed should have decreased due to ceiling drain (on top of gravity)
+        assert!(state.fighters[0].speed < initial_speed,
+            "Ceiling zone should drain speed. Got {}", state.fighters[0].speed);
+    }
+
+    #[test]
+    fn test_ceiling_stall() {
+        let mut state = SimState::new();
+        // Start in ceiling zone with low speed
+        state.fighters[0].position = Vec2::new(0.0, 590.0);
+        state.fighters[0].yaw = std::f32::consts::FRAC_PI_2; // pointing up
+        state.fighters[0].speed = 40.0;
+
+        // Step for a while — should stall from speed drain
+        for _ in 0..60 {
+            state.step(&[Action { yaw_input: 0.0, throttle: 0.0, shoot: false }, Action::none()]);
+        }
+
+        // Should have stalled or have very low speed
+        assert!(state.fighters[0].stall_ticks > 0 || state.fighters[0].speed <= STALL_SPEED,
+            "Prolonged ceiling should cause stall. Speed={}, stall_ticks={}",
+            state.fighters[0].speed, state.fighters[0].stall_ticks);
     }
 
     #[test]
@@ -630,7 +786,7 @@ mod tests {
     #[test]
     fn test_frame_position_continuity() {
         // Verify no teleportation: consecutive frames should never have
-        // position jumps larger than physics allows.
+        // position jumps larger than physics allows (except wrapping).
         // Max possible displacement per frame interval:
         //   MAX_SPEED * FRAME_INTERVAL * DT = 250 * 4 * (1/120) ≈ 8.33
         // Use generous threshold to account for boundary forces.
@@ -646,7 +802,8 @@ mod tests {
             if state.tick % FRAME_INTERVAL == 0 {
                 let snap = state.snapshot();
                 for p in 0..2 {
-                    let dx = snap.fighters[p].x - prev_snap.fighters[p].x;
+                    if !snap.fighters[p].alive { continue; }
+                    let dx = wrapped_rel_x(snap.fighters[p].x, prev_snap.fighters[p].x);
                     let dy = snap.fighters[p].y - prev_snap.fighters[p].y;
                     let dist = (dx * dx + dy * dy).sqrt();
                     assert!(
@@ -688,7 +845,8 @@ mod tests {
             let prev = &replay.frames[i - 1];
             let curr = &replay.frames[i];
             for p in 0..2 {
-                let dx = curr.fighters[p].x - prev.fighters[p].x;
+                if !curr.fighters[p].alive { continue; }
+                let dx = wrapped_rel_x(curr.fighters[p].x, prev.fighters[p].x);
                 let dy = curr.fighters[p].y - prev.fighters[p].y;
                 let dist = (dx * dx + dy * dy).sqrt();
                 assert!(

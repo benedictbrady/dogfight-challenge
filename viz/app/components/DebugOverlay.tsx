@@ -83,9 +83,10 @@ export default function DebugOverlay({
       const prev = prevFrame.fighters[p];
       const curr = frame.fighters[p];
       if (!prev || !curr) continue;
-      const dx = curr.x - prev.x;
+      const rawDx = curr.x - prev.x;
+      const wrappedDx = Math.abs(rawDx) > 500 ? (rawDx > 0 ? rawDx - 1000 : rawDx + 1000) : rawDx;
       const dy = curr.y - prev.y;
-      const delta = Math.sqrt(dx * dx + dy * dy);
+      const delta = Math.sqrt(wrappedDx * wrappedDx + dy * dy);
       if (delta > TELEPORT_THRESHOLD) {
         const event: TeleportEvent = {
           frameIndex,

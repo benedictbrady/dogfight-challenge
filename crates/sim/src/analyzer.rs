@@ -113,7 +113,7 @@ pub fn analyze(replay: &Replay) -> BattleMetrics {
     let mut was_close = false;
 
     for frame in frames {
-        let dx = frame.fighters[0].x - frame.fighters[1].x;
+        let dx = crate::physics::wrapped_rel_x(frame.fighters[0].x, frame.fighters[1].x);
         let dy = frame.fighters[0].y - frame.fighters[1].y;
         let dist = (dx * dx + dy * dy).sqrt();
         let is_close = dist < engage_threshold;
@@ -155,7 +155,7 @@ pub fn analyze(replay: &Replay) -> BattleMetrics {
     let mut combat_speed_count = 0u32;
 
     for frame in frames {
-        let dx = frame.fighters[0].x - frame.fighters[1].x;
+        let dx = crate::physics::wrapped_rel_x(frame.fighters[0].x, frame.fighters[1].x);
         let dy = frame.fighters[0].y - frame.fighters[1].y;
         let dist = (dx * dx + dy * dy).sqrt();
 

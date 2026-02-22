@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use dogfight_shared::*;
 use dogfight_sim::analyzer;
 use dogfight_sim::opponents::{AcePolicy, BrawlerPolicy, ChaserPolicy, DogfighterPolicy};
-use dogfight_sim::{run_match, DoNothingPolicy, Policy};
+use dogfight_sim::{run_match, Policy};
 use dogfight_validator::OnnxPolicy;
 
 #[derive(Parser)]
@@ -20,11 +20,11 @@ struct Cli {
 enum Commands {
     /// Run a match between two policies
     Run {
-        /// Policy for player 0 (chaser, dogfighter, do_nothing, or .onnx path)
+        /// Policy for player 0 (chaser, dogfighter, ace, brawler, or .onnx path)
         #[arg(long)]
         p0: String,
 
-        /// Policy for player 1 (chaser, dogfighter, do_nothing, or .onnx path)
+        /// Policy for player 1 (chaser, dogfighter, ace, brawler, or .onnx path)
         #[arg(long)]
         p1: String,
 
@@ -87,7 +87,7 @@ enum Commands {
 
 /// Resolve a policy name to a boxed Policy trait object.
 ///
-/// Supported names: chaser, dogfighter, ace, brawler, do_nothing, neural,
+/// Supported names: chaser, dogfighter, ace, brawler, neural,
 /// or a path ending in ".onnx". Exits the process on unknown policy or load failure.
 fn resolve_policy(name: &str) -> Box<dyn Policy> {
     match name {
@@ -95,7 +95,6 @@ fn resolve_policy(name: &str) -> Box<dyn Policy> {
         "dogfighter" => Box::new(DogfighterPolicy::new()),
         "ace" => Box::new(AcePolicy::new()),
         "brawler" => Box::new(BrawlerPolicy::new()),
-        "do_nothing" => Box::new(DoNothingPolicy),
         path if path == "neural" || path.ends_with(".onnx") => {
             let onnx_path = if path == "neural" { "policy.onnx" } else { path };
             let p = std::path::Path::new(onnx_path);
@@ -140,7 +139,7 @@ fn resolve_policy(name: &str) -> Box<dyn Policy> {
                 }
             }
             eprintln!(
-                "Unknown policy '{}'. Valid options: chaser, dogfighter, ace, brawler, do_nothing, neural, or a .onnx file path.",
+                "Unknown policy '{}'. Valid options: chaser, dogfighter, ace, brawler, neural, or a .onnx file path.",
                 other
             );
             std::process::exit(1);

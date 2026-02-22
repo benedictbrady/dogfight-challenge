@@ -71,21 +71,47 @@ export default function Fighter({ state, color, trail }: FighterProps) {
     return s;
   }, []);
 
-  // Trail with per-vertex fade
-  const { trailPoints, trailColors } = useMemo(() => {
-    if (trail.length < 2) return { trailPoints: null, trailColors: null };
-    const pts = trail.map((v): [number, number, number] => [v.x, v.y, 0]);
+  // Trail with per-vertex fade, split at wrap boundaries
+  const trailSegments = useMemo(() => {
+    if (trail.length < 2) return null;
     const c = new THREE.Color(color);
     const cr = c.r, cg = c.g, cb = c.b;
-    const colors = trail.map((_, i) => {
-      const t = trail.length > 1 ? i / (trail.length - 1) : 1;
+
+    // Compute per-vertex color based on global position in trail
+    const vertexColor = (globalIdx: number): [number, number, number] => {
+      const t = trail.length > 1 ? globalIdx / (trail.length - 1) : 1;
       return [
         BG[0] + (cr - BG[0]) * t,
         BG[1] + (cg - BG[1]) * t,
         BG[2] + (cb - BG[2]) * t,
-      ] as [number, number, number];
-    });
-    return { trailPoints: pts, trailColors: colors };
+      ];
+    };
+
+    // Split trail at wrap points (|dx| > 500 between consecutive points)
+    const segments: { points: [number, number, number][]; colors: [number, number, number][] }[] = [];
+    let currentPts: [number, number, number][] = [[trail[0].x, trail[0].y, 0]];
+    let currentColors: [number, number, number][] = [vertexColor(0)];
+
+    for (let i = 1; i < trail.length; i++) {
+      const dx = Math.abs(trail[i].x - trail[i - 1].x);
+      if (dx > 500) {
+        // Wrap detected — end current segment, start new one
+        if (currentPts.length >= 2) {
+          segments.push({ points: currentPts, colors: currentColors });
+        }
+        currentPts = [[trail[i].x, trail[i].y, 0]];
+        currentColors = [vertexColor(i)];
+      } else {
+        currentPts.push([trail[i].x, trail[i].y, 0]);
+        currentColors.push(vertexColor(i));
+      }
+    }
+
+    if (currentPts.length >= 2) {
+      segments.push({ points: currentPts, colors: currentColors });
+    }
+
+    return segments;
   }, [trail, color]);
 
   return (
@@ -110,14 +136,17 @@ export default function Fighter({ state, color, trail }: FighterProps) {
         </>
       )}
 
-      {/* Fading trail — persists after death */}
-      {trailPoints && trailColors && (
+      {/* Fading trail — persists after death, split at wrap boundaries */}
+      {trailSegments && (
         <group position={[-state.x, -state.y, -1]}>
-          <Line
-            points={trailPoints}
-            vertexColors={trailColors}
-            lineWidth={1.5}
-          />
+          {trailSegments.map((seg, i) => (
+            <Line
+              key={i}
+              points={seg.points}
+              vertexColors={seg.colors}
+              lineWidth={1.5}
+            />
+          ))}
         </group>
       )}
     </group>

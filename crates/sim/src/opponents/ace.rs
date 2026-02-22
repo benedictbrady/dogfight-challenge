@@ -87,8 +87,8 @@ impl AcePolicy {
     fn act_evade(&self, ts: &TacticalState) -> Action {
         let mut evade_yaw = self.evade_dir;
 
-        // Don't evade into ground
-        if ts.altitude < 90.0 && evade_yaw < 0.0 && ts.my_yaw.sin() < 0.0 {
+        // Don't evade into ground (ground = death)
+        if ts.altitude < 120.0 && evade_yaw < 0.0 && ts.my_yaw.sin() < 0.0 {
             evade_yaw = 1.0;
         }
         // Don't evade into ceiling
