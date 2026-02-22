@@ -1,6 +1,6 @@
 # Dogfight Challenge
 
-A 2D side-view dogfight arena where AI pilots battle for air superiority. Build a stateless ONNX model, drop it in, and see how it fares against five scripted opponents — or against other players' models in a round-robin tournament.
+A 2D side-view dogfight arena where AI pilots battle for air superiority. Build a stateless ONNX model, drop it in, and see how it fares against four scripted opponents — or against other players' models in a round-robin tournament.
 
 **Rust physics engine (120Hz) | Next.js + Three.js visualization | ONNX model interface**
 
@@ -23,8 +23,8 @@ A 2D side-view dogfight arena where AI pilots battle for air superiority. Build 
 │  120Hz tick rate · gravity · rear-aspect armor│
 │  bullet physics · stall mechanics · damage    │
 │                                              │
-│  Scripted opponents: do_nothing, dogfighter,  │
-│  chaser, ace, brawler                         │
+│  Scripted opponents: dogfighter, chaser,      │
+│  ace, brawler                                 │
 └──────────────────┬───────────────────────────┘
                    │
                    │ WebSocket (30fps frames)
@@ -100,10 +100,13 @@ Two fighters spawn in a 2D arena and have 90 seconds to fight.
 | | |
 |---|---|
 | **Arena** | 1000m wide, 600m tall |
+| **Boundaries** | Horizontal edges wrap around. Ground (y &le; 5m) is fatal. Ceiling zone (above 550m) drains speed; hard cap at 600m |
 | **Physics** | 120Hz. Gravity-based energy model — climbing costs speed, diving gains it |
 | **HP** | 5 per fighter. 0 = eliminated |
 | **Bullets** | 400 m/s, ~200m range, 0.75s cooldown |
 | **Rear-aspect armor** | Bullets from within 45° behind a target glance off — no damage |
+| **Stall** | Below 30 m/s, the fighter stalls: nose drops, no control or shooting until speed recovers |
+| **Damage** | Each HP lost reduces max speed by 3% and turn rate by 2% |
 | **Win** | Eliminate opponent, or have more HP when time runs out |
 
 ### Scoring (Tournament)
@@ -151,7 +154,6 @@ From weakest to strongest:
 
 | Policy | Style | Key trait |
 |--------|-------|-----------|
-| `do_nothing` | Passive | Falls from the sky |
 | `dogfighter` | Adaptive | Mode-switches between attack, defend, energy management |
 | `chaser` | Aggressive | Relentless pursuit with yo-yo maneuvers |
 | `ace` | Defensive | Energy fighting, perpendicular breaks, altitude advantage |
@@ -159,7 +161,7 @@ From weakest to strongest:
 
 ### Baseline ONNX Models
 
-Pre-trained baselines (behavioral cloning from scripted policies) are in `baselines/`:
+Pre-trained baselines (behavioral cloning from scripted policies) are in `baselines/`. These are approximate ONNX copies of the scripted opponents, useful as reference models and for GUI playback:
 
 ```bash
 make run P0=chaser P1=brawler           # scripted vs scripted
@@ -188,7 +190,7 @@ make analyze                                  # Battle dynamics analysis
 ```
 crates/
   shared/      Constants, types, observation layout
-  sim/         Physics engine, Policy trait, 5 scripted opponents
+  sim/         Physics engine, Policy trait, 4 scripted opponents
   validator/   ONNX model validation (shape, size, speed)
   server/      Axum WebSocket server — streams match frames
   cli/         CLI: run, serve, tournament, validate, analyze

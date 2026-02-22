@@ -76,13 +76,18 @@ Meta [55]:
 
 ## Game Rules
 
-- **Arena**: X ∈ [-500, 500], Y ∈ [0, 600]
-- **Physics**: 120 Hz, gravity-based energy model
+- **Arena**: 1000m wide (X: -500 to 500), 600m tall (Y: 0 to 600)
+- **Horizontal boundaries**: wrap around (flying off the right edge puts you on the left)
+- **Ground**: hitting the ground (Y &le; 5m) is fatal — instant elimination
+- **Ceiling**: speed drains progressively above 550m altitude; hard cap at 600m
+- **Physics**: 120 Hz, gravity = 130 m/s². Climbing costs speed, diving gains it
 - **HP**: 5 per fighter. 0 = eliminated
-- **Rear-aspect armor**: Bullets within 45° behind glance off
-- **Bullets**: 400 m/s, 0.5s lifetime, 0.75s cooldown
+- **Rear-aspect armor**: bullets within 45° behind glance off — no damage
+- **Bullets**: 400 m/s, 0.5s lifetime (~200m range), 0.75s cooldown
+- **Stall**: below 30 m/s, nose drops toward ground, no control or shooting until speed exceeds 40 m/s
+- **Damage degradation**: each HP lost reduces max speed by 3% and turn rate by 2%
 - **Match**: 90 seconds (10800 ticks)
-- **Win**: Elimination or HP advantage at timeout
+- **Win**: elimination or HP advantage at timeout
 
 ## Evaluation
 
@@ -91,9 +96,9 @@ Round-robin tournament: Win by elimination = 3 pts, Win by HP = 2 pts, Draw = 1 
 ## Validation
 
 ```bash
-cargo run -p dogfight --release -- validate your_model.onnx
+make validate MODEL=your_model.onnx
 ```
 
 ## Baseline Models
 
-Available in `baselines/`: do_nothing, chaser, dogfighter, ace, brawler.
+Pre-trained ONNX baselines in `baselines/`: chaser, dogfighter, ace, brawler.

@@ -1,4 +1,5 @@
 /target
+.next/
 viz/node_modules/
 viz/.next/
 viz/.next_stale_*/
@@ -10,8 +11,10 @@ __pycache__/
 *.egg-info/
 *.so
 
-# ONNX models (except the tracked baseline)
+# Training artifacts
+training/
+
+# ONNX models (except tracked baselines)
 *.onnx
 *.onnx.data
-!policy.onnx
-!policy.onnx.data
+!baselines/*.onnx

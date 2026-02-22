@@ -5,7 +5,7 @@ pub const TICK_DURATION_US: u64 = 8333;
 
 // Match
 pub const MATCH_DURATION_SECS: u32 = 90;
-pub const MAX_TICKS: u32 = TICK_RATE * MATCH_DURATION_SECS; // 7200
+pub const MAX_TICKS: u32 = TICK_RATE * MATCH_DURATION_SECS; // 10800
 
 // Arena (side-view: X=horizontal, Y=altitude)
 pub const ARENA_RADIUS: f32 = 500.0;
