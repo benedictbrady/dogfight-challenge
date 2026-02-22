@@ -1,7 +1,6 @@
 // Tick rate
 pub const TICK_RATE: u32 = 120;
 pub const DT: f32 = 1.0 / TICK_RATE as f32;
-pub const TICK_DURATION_US: u64 = 8333;
 
 // Match
 pub const MATCH_DURATION_SECS: u32 = 90;
@@ -70,7 +69,4 @@ pub const FRAME_INTERVAL: u32 = 4; // stream every 4th tick = 30fps
 
 // ONNX validation
 pub const MAX_MODEL_SIZE_BYTES: usize = 10 * 1024 * 1024; // 10 MB
-pub const MAX_PARAMETERS: usize = 2_000_000;
-pub const MAX_INFERENCE_TIME_MS: u64 = 1000;
-pub const CALIBRATION_WARMUP: usize = 10;
-pub const CALIBRATION_RUNS: usize = 100;
+pub const MAX_PARAMETERS: usize = 250_000;

@@ -1,9 +1,7 @@
 use std::path::Path;
-use std::time::Instant;
 
 use dogfight_shared::{
     Action, Observation, OBS_SIZE, ACTION_SIZE, MAX_MODEL_SIZE_BYTES, MAX_PARAMETERS,
-    CALIBRATION_WARMUP, CALIBRATION_RUNS, TICK_DURATION_US,
 };
 use dogfight_sim::Policy;
 use ort::session::Session;
@@ -27,8 +25,6 @@ pub enum ValidationError {
     InvalidOutputShape(Vec<i64>),
     #[error("Too many parameters: {0} (max {1})")]
     TooManyParameters(usize, usize),
-    #[error("Inference too slow: {0}ms (max {1}ms)")]
-    InferenceTooSlow(u64, u64),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("ONNX runtime error: {0}")]
@@ -267,34 +263,3 @@ impl Policy for OnnxPolicy {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Calibration
-// ---------------------------------------------------------------------------
-
-/// Run a series of dummy inferences to measure the average inference latency,
-/// then return a *control period* (number of simulation ticks per decision).
-///
-/// control_period = ceil(mean_inference_us / TICK_DURATION_US)
-///
-/// A control period of 1 means the policy can run every tick.
-pub fn calibrate_inference(policy: &mut OnnxPolicy) -> u32 {
-    let dummy_obs = Observation {
-        data: [0.0f32; OBS_SIZE],
-    };
-
-    // Warmup
-    for _ in 0..CALIBRATION_WARMUP {
-        let _ = policy.act(&dummy_obs);
-    }
-
-    // Timed runs
-    let start = Instant::now();
-    for _ in 0..CALIBRATION_RUNS {
-        let _ = policy.act(&dummy_obs);
-    }
-    let elapsed_us = start.elapsed().as_micros() as u64;
-    let mean_us = elapsed_us / CALIBRATION_RUNS as u64;
-
-    let period = mean_us.div_ceil(TICK_DURATION_US).max(1);
-    period as u32
-}

@@ -213,8 +213,6 @@ pub struct MatchConfig {
     pub seed: u64,
     pub p0_name: String,
     pub p1_name: String,
-    pub p0_control_period: u32,
-    pub p1_control_period: u32,
     pub max_ticks: u32,
     pub randomize_spawns: bool,
     #[serde(default)]
@@ -227,8 +225,6 @@ impl Default for MatchConfig {
             seed: 0,
             p0_name: "p0".into(),
             p1_name: "p1".into(),
-            p0_control_period: 1,
-            p1_control_period: 1,
             max_ticks: crate::MAX_TICKS,
             randomize_spawns: false,
             sim_config: SimConfig::default(),

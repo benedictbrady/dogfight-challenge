@@ -173,12 +173,13 @@ fn run_matchup(p0_name: &str, p1_name: &str, seeds: u64) -> (u32, u32, u32) {
 #[test]
 fn test_matchup_balance_overview() {
     // Verify expected matchup directions with ground death + horizontal wrapping.
-    // The sim is fully deterministic (no RNG), so all seeds produce the same winner.
+    // All policies run at 12Hz (CONTROL_PERIOD=10). The sim is fully deterministic
+    // (no RNG), so all seeds produce the same winner.
     //
-    // Balance hierarchy (ground=death, horizontal=wrap, ceiling=speed drain):
-    //   brawler > ace > dogfighter. Chaser vs ace is position-dependent.
+    // Balance hierarchy at 12Hz (ground=death, horizontal=wrap, ceiling=speed drain):
+    //   brawler > dogfighter > ace at seed 0.
     let expected_winners: Vec<(&str, &str, &str)> = vec![
-        ("ace", "dogfighter", "ace"),           // ace beats dogfighter (altitude awareness)
+        ("ace", "dogfighter", "dogfighter"),    // dogfighter beats ace at 12Hz
         ("brawler", "ace", "brawler"),          // brawler beats ace
         ("brawler", "chaser", "brawler"),       // brawler beats chaser
     ];

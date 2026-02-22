@@ -14,14 +14,12 @@ pub fn run_match(config: &MatchConfig, p0: &mut dyn Policy, p1: &mut dyn Policy)
     frames.push(state.snapshot());
 
     for tick in 0..config.max_ticks {
-        // Update actions based on control period
-        if tick % config.p0_control_period == 0 {
-            let obs = state.observe(0);
-            action0 = p0.act(&obs);
-        }
-        if tick % config.p1_control_period == 0 {
-            let obs = state.observe(1);
-            action1 = p1.act(&obs);
+        // Update actions at fixed 12Hz rate (every CONTROL_PERIOD ticks)
+        if tick % CONTROL_PERIOD == 0 {
+            let obs0 = state.observe(0);
+            action0 = p0.act(&obs0);
+            let obs1 = state.observe(1);
+            action1 = p1.act(&obs1);
         }
 
         state.step(&[action0, action1]);

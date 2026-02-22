@@ -9,8 +9,7 @@ Participants submit a **stateless ONNX model** that controls a fighter in a 2D s
 | Input | `float32[1, 224]` — stacked observation |
 | Output | `float32[1, 3]` — `[yaw_input, throttle, shoot]` |
 | Max file size | 10 MB |
-| Max parameters | 2,000,000 |
-| Max mean inference | 100 us |
+| Max parameters | 250,000 |
 | Decision rate | 12 Hz (every 10 physics ticks at 120 Hz) |
 
 ### Output Clamping

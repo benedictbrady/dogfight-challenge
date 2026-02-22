@@ -130,15 +130,6 @@ fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
     }
 }
 
-/// All policies shown in the GUI are ONNX — they all run at 12Hz.
-fn is_onnx_policy(name: &str) -> bool {
-    if name.ends_with(".onnx") {
-        return true;
-    }
-    Path::new("baselines").join(format!("{name}.onnx")).exists()
-        || Path::new("models").join(format!("{name}.onnx")).exists()
-}
-
 fn load_onnx_policy(path: &Path) -> Option<Box<dyn Policy>> {
     match OnnxPolicy::load(path) {
         Ok(p) => {
@@ -233,16 +224,10 @@ async fn handle_socket(mut socket: WebSocket) {
         let mut p0 = try_resolve_policy(&p0_name).expect("policy already validated");
         let mut p1 = try_resolve_policy(&p1_name).expect("policy already validated");
 
-        // ONNX models use CONTROL_PERIOD (12Hz decisions at 120Hz physics)
-        let p0_period = if is_onnx_policy(&p0_name) { CONTROL_PERIOD } else { 1 };
-        let p1_period = if is_onnx_policy(&p1_name) { CONTROL_PERIOD } else { 1 };
-
         let match_config = MatchConfig {
             seed,
             p0_name,
             p1_name,
-            p0_control_period: p0_period,
-            p1_control_period: p1_period,
             randomize_spawns,
             ..Default::default()
         };

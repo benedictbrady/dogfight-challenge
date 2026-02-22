@@ -71,7 +71,7 @@ Submit a **stateless ONNX model** that controls a fighter. The sim provides all 
 | **Output** | `float32[1, 3]` — `[yaw_input, throttle, shoot]` |
 | **Decision rate** | 12 Hz (every 10 physics ticks) |
 | **Max file size** | 10 MB |
-| **Max parameters** | 2,000,000 |
+| **Max parameters** | 250,000 |
 
 Output clamping: yaw `[-1, 1]`, throttle `[0, 1]`, shoot fires if `> 0`.
 
