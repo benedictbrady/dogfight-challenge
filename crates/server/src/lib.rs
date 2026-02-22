@@ -9,7 +9,7 @@ use axum::{
 };
 use dogfight_shared::*;
 use dogfight_sim::opponents::{AcePolicy, BrawlerPolicy, ChaserPolicy, DogfighterPolicy};
-use dogfight_sim::{run_match, DoNothingPolicy, Policy, SimState};
+use dogfight_sim::{run_match, Policy, SimState};
 use dogfight_validator::OnnxPolicy;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -122,7 +122,6 @@ fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
 
     // 4. Scripted Rust fallback (used by CLI/tests, not shown in GUI)
     match name {
-        "do_nothing" => Some(Box::new(DoNothingPolicy)),
         "chaser" => Some(Box::new(ChaserPolicy::new())),
         "dogfighter" => Some(Box::new(DogfighterPolicy::new())),
         "ace" => Some(Box::new(AcePolicy::new())),

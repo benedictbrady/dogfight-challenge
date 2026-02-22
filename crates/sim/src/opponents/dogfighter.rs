@@ -287,8 +287,8 @@ fn altitude_bias(altitude: f32, yaw: f32, speed: f32) -> f32 {
         bias -= 0.1;
     }
 
-    if altitude < 100.0 {
-        let urgency = ((100.0 - altitude) / 60.0).min(1.0);
+    if altitude < 130.0 {
+        let urgency = ((130.0 - altitude) / 60.0).min(1.0);
         if yaw.sin() < 0.1 {
             bias += urgency * 0.4;
         }

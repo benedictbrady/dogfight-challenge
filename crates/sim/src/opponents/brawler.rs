@@ -119,7 +119,7 @@ impl BrawlerPolicy {
                     Some(BrawlerPhase::Close)
                 } else if ts.opponent_behind_me && ts.distance < 180.0 && ts.closing_rate > 30.0 {
                     Some(BrawlerPhase::OvershootBait)
-                } else if ts.altitude < 80.0 && ts.my_speed < 60.0 {
+                } else if ts.altitude < 120.0 && ts.my_speed < 60.0 {
                     Some(BrawlerPhase::Retreat)
                 } else {
                     None

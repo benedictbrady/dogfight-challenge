@@ -57,21 +57,19 @@ pub fn run_match(config: &MatchConfig, p0: &mut dyn Policy, p1: &mut dyn Policy)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::policy::DoNothingPolicy;
+    use crate::opponents::ChaserPolicy;
 
     #[test]
-    fn test_do_nothing_match_completes() {
+    fn test_match_completes() {
         let config = MatchConfig::default();
-        let mut p0 = DoNothingPolicy;
-        let mut p1 = DoNothingPolicy;
+        let mut p0 = ChaserPolicy::new();
+        let mut p1 = ChaserPolicy::new();
 
         let replay = run_match(&config, &mut p0, &mut p1);
 
-        // Match should complete at max ticks (timeout draw)
-        assert_eq!(replay.result.final_tick, MAX_TICKS);
-        assert_eq!(replay.result.outcome, MatchOutcome::Draw);
-        assert_eq!(replay.result.reason, MatchEndReason::Timeout);
         assert!(!replay.frames.is_empty());
+        // Match should end (either elimination or timeout)
+        assert!(replay.result.final_tick <= MAX_TICKS);
     }
 
     #[test]
@@ -80,8 +78,8 @@ mod tests {
             max_ticks: 120, // 1 second
             ..Default::default()
         };
-        let mut p0 = DoNothingPolicy;
-        let mut p1 = DoNothingPolicy;
+        let mut p0 = ChaserPolicy::new();
+        let mut p1 = ChaserPolicy::new();
 
         let replay = run_match(&config, &mut p0, &mut p1);
 

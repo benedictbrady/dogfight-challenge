@@ -36,7 +36,7 @@ impl SimState {
         data[7] = my_energy / MAX_ENERGY;
 
         // OPPONENT STATE (11 floats) [8..19)
-        let rel = them.position - me.position;
+        let rel = crate::physics::wrapped_rel(them.position, me.position);
         let distance = rel.length();
         data[8] = rel.x / ARENA_DIAMETER;
         data[9] = rel.y / ARENA_DIAMETER;
@@ -46,7 +46,7 @@ impl SimState {
         data[13] = them.hp as f32 / self.config.max_hp as f32;
         data[14] = distance / ARENA_DIAMETER;
 
-        let prev_rel = prev_them.position - prev_me.position;
+        let prev_rel = crate::physics::wrapped_rel(prev_them.position, prev_me.position);
         let prev_distance = prev_rel.length();
         let closure_rate = if self.tick > 0 {
             (prev_distance - distance) / DT
@@ -74,7 +74,7 @@ impl SimState {
             .bullets
             .iter()
             .map(|b| {
-                let dist = (b.position - me.position).length();
+                let dist = crate::physics::wrapped_distance(b.position, me.position);
                 (dist, b)
             })
             .collect();
@@ -82,7 +82,7 @@ impl SimState {
 
         for (slot, (_dist, bullet)) in bullet_entries.iter().take(MAX_BULLET_SLOTS).enumerate() {
             let base = 19 + slot * 4;
-            let brel = bullet.position - me.position;
+            let brel = crate::physics::wrapped_rel(bullet.position, me.position);
             data[base] = brel.x / ARENA_DIAMETER;
             data[base + 1] = brel.y / ARENA_DIAMETER;
             data[base + 2] = if bullet.owner == player { 1.0 } else { 0.0 };

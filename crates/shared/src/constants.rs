@@ -10,12 +10,12 @@ pub const MAX_TICKS: u32 = TICK_RATE * MATCH_DURATION_SECS; // 7200
 // Arena (side-view: X=horizontal, Y=altitude)
 pub const ARENA_RADIUS: f32 = 500.0;
 pub const ARENA_DIAMETER: f32 = ARENA_RADIUS * 2.0;
-pub const BOUNDARY_START_HORIZ: f32 = 450.0;
-pub const BOUNDARY_FORCE: f32 = 300.0;
 pub const GRAVITY: f32 = 130.0;
 pub const MAX_ALTITUDE: f32 = 600.0;
 pub const ALT_BOUNDARY_LOW: f32 = 50.0;
 pub const ALT_BOUNDARY_HIGH: f32 = 550.0;
+pub const GROUND_DEATH_ALTITUDE: f32 = 5.0;
+pub const CEILING_SPEED_DRAIN: f32 = 80.0;
 
 // Fighter
 pub const FIGHTER_RADIUS: f32 = 8.0;

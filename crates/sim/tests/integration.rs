@@ -1,102 +1,6 @@
 use dogfight_shared::*;
 use dogfight_sim::opponents::{AcePolicy, BrawlerPolicy, ChaserPolicy, DogfighterPolicy};
-use dogfight_sim::{run_match, DoNothingPolicy};
-
-#[test]
-fn test_chaser_beats_do_nothing() {
-    let config = MatchConfig {
-        seed: 42,
-        p0_name: "chaser".into(),
-        p1_name: "do_nothing".into(),
-        ..Default::default()
-    };
-    let mut p0 = ChaserPolicy::new();
-    let mut p1 = DoNothingPolicy;
-
-    let replay = run_match(&config, &mut p0, &mut p1);
-
-    assert_eq!(
-        replay.result.outcome,
-        MatchOutcome::Player0Win,
-        "Chaser should beat DoNothing. Got {:?} at tick {} with p0_hp={} p1_hp={}",
-        replay.result.outcome,
-        replay.result.final_tick,
-        replay.result.stats.p0_hp,
-        replay.result.stats.p1_hp,
-    );
-}
-
-#[test]
-fn test_dogfighter_beats_do_nothing() {
-    let config = MatchConfig {
-        seed: 42,
-        p0_name: "dogfighter".into(),
-        p1_name: "do_nothing".into(),
-        ..Default::default()
-    };
-    let mut p0 = DogfighterPolicy::new();
-    let mut p1 = DoNothingPolicy;
-
-    let replay = run_match(&config, &mut p0, &mut p1);
-
-    assert_eq!(
-        replay.result.outcome,
-        MatchOutcome::Player0Win,
-        "Dogfighter should beat DoNothing. Got {:?} at tick {} with p0_hp={} p1_hp={}",
-        replay.result.outcome,
-        replay.result.final_tick,
-        replay.result.stats.p0_hp,
-        replay.result.stats.p1_hp,
-    );
-}
-
-#[test]
-fn test_ace_beats_do_nothing() {
-    let config = MatchConfig {
-        seed: 42,
-        p0_name: "ace".into(),
-        p1_name: "do_nothing".into(),
-        ..Default::default()
-    };
-    let mut p0 = AcePolicy::new();
-    let mut p1 = DoNothingPolicy;
-
-    let replay = run_match(&config, &mut p0, &mut p1);
-
-    assert_eq!(
-        replay.result.outcome,
-        MatchOutcome::Player0Win,
-        "Ace should beat DoNothing. Got {:?} at tick {} with p0_hp={} p1_hp={}",
-        replay.result.outcome,
-        replay.result.final_tick,
-        replay.result.stats.p0_hp,
-        replay.result.stats.p1_hp,
-    );
-}
-
-#[test]
-fn test_brawler_beats_do_nothing() {
-    let config = MatchConfig {
-        seed: 42,
-        p0_name: "brawler".into(),
-        p1_name: "do_nothing".into(),
-        ..Default::default()
-    };
-    let mut p0 = BrawlerPolicy::new();
-    let mut p1 = DoNothingPolicy;
-
-    let replay = run_match(&config, &mut p0, &mut p1);
-
-    assert_eq!(
-        replay.result.outcome,
-        MatchOutcome::Player0Win,
-        "Brawler should beat DoNothing. Got {:?} at tick {} with p0_hp={} p1_hp={}",
-        replay.result.outcome,
-        replay.result.final_tick,
-        replay.result.stats.p0_hp,
-        replay.result.stats.p1_hp,
-    );
-}
+use dogfight_sim::run_match;
 
 #[test]
 fn test_brawler_vs_ace_multi_seed() {
@@ -182,8 +86,7 @@ fn test_ace_deterministic() {
 
 #[test]
 fn test_match_completion_time() {
-    // With high gravity + rear-aspect armor, brawler vs ace may go to timeout
-    // but brawler should still win (HP advantage or elimination).
+    // Brawler should beat ace (HP advantage or elimination).
     let config = MatchConfig {
         seed: 42,
         p0_name: "brawler".into(),
@@ -211,12 +114,12 @@ fn test_replay_serialization() {
     let config = MatchConfig {
         seed: 1,
         p0_name: "chaser".into(),
-        p1_name: "do_nothing".into(),
+        p1_name: "ace".into(),
         max_ticks: 240,
         ..Default::default()
     };
     let mut p0 = ChaserPolicy::new();
-    let mut p1 = DoNothingPolicy;
+    let mut p1 = AcePolicy::new();
 
     let replay = run_match(&config, &mut p0, &mut p1);
 
@@ -246,14 +149,14 @@ fn run_matchup(p0_name: &str, p1_name: &str, seeds: u64) -> (u32, u32, u32) {
             "dogfighter" => Box::new(DogfighterPolicy::new()),
             "ace" => Box::new(AcePolicy::new()),
             "brawler" => Box::new(BrawlerPolicy::new()),
-            _ => Box::new(DoNothingPolicy),
+            _ => panic!("Unknown policy: {}", p0_name),
         };
         let mut p1: Box<dyn dogfight_sim::Policy> = match p1_name {
             "chaser" => Box::new(ChaserPolicy::new()),
             "dogfighter" => Box::new(DogfighterPolicy::new()),
             "ace" => Box::new(AcePolicy::new()),
             "brawler" => Box::new(BrawlerPolicy::new()),
-            _ => Box::new(DoNothingPolicy),
+            _ => panic!("Unknown policy: {}", p1_name),
         };
 
         let replay = run_match(&config, p0.as_mut(), p1.as_mut());
@@ -268,31 +171,14 @@ fn run_matchup(p0_name: &str, p1_name: &str, seeds: u64) -> (u32, u32, u32) {
 }
 
 #[test]
-fn test_all_policies_beat_do_nothing_multi_seed() {
-    for policy in &["chaser", "dogfighter", "ace", "brawler"] {
-        let (wins, _, _) = run_matchup(policy, "do_nothing", 5);
-        assert!(
-            wins >= 4,
-            "{} should beat do_nothing consistently. Wins: {}/5",
-            policy,
-            wins
-        );
-    }
-}
-
-#[test]
 fn test_matchup_balance_overview() {
-    // Verify expected matchup directions with high gravity + rear-aspect armor.
+    // Verify expected matchup directions with ground death + horizontal wrapping.
     // The sim is fully deterministic (no RNG), so all seeds produce the same winner.
     //
-    // Balance hierarchy (gravity=130 + rear-aspect armor + 5HP):
-    //   brawler > {dogfighter, ace} > chaser
-    //
-    // High gravity rewards energy-efficient styles: brawler's close-range turns
-    // dominate. Chaser vs dogfighter is position-dependent (too close to assert).
+    // Balance hierarchy (ground=death, horizontal=wrap, ceiling=speed drain):
+    //   brawler > ace > dogfighter. Chaser vs ace is position-dependent.
     let expected_winners: Vec<(&str, &str, &str)> = vec![
-        ("dogfighter", "ace", "dogfighter"),    // dogfighter beats ace
-        ("ace", "chaser", "ace"),               // ace beats chaser
+        ("ace", "dogfighter", "ace"),           // ace beats dogfighter (altitude awareness)
         ("brawler", "ace", "brawler"),          // brawler beats ace
         ("brawler", "chaser", "brawler"),       // brawler beats chaser
     ];
