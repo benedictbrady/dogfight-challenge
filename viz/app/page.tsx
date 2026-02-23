@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Scene from "./components/Scene";
 import Controls from "./components/Controls";
 import MatchSetup from "./components/MatchSetup";
 import DebugOverlay from "./components/DebugOverlay";
-import { useMatch, MatchConfig, Frame } from "./hooks/useMatch";
+import { useMatch, MatchConfig, Frame, HumanInput } from "./hooks/useMatch";
 
 const MAX_HP = 5;
 
@@ -19,6 +19,52 @@ const DEFAULT_FRAME: Frame = {
   hits: [],
 };
 
+const CRUISE_THROTTLE = 0.65;
+
+function normalizeControlKey(key: string): string | null {
+  const k = key.toLowerCase();
+  if (
+    k === "a" ||
+    k === "d" ||
+    k === "w" ||
+    k === "s" ||
+    k === "arrowleft" ||
+    k === "arrowright" ||
+    k === "arrowup" ||
+    k === "arrowdown"
+  ) {
+    return k;
+  }
+  if (k === " " || k === "space" || k === "spacebar") {
+    return "space";
+  }
+  return null;
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
+}
+
+function computeHumanInput(pressed: Set<string>): HumanInput {
+  const left = pressed.has("a") || pressed.has("arrowleft");
+  const right = pressed.has("d") || pressed.has("arrowright");
+  const up = pressed.has("w") || pressed.has("arrowup");
+  const down = pressed.has("s") || pressed.has("arrowdown");
+  const shoot = pressed.has("space");
+
+  return {
+    yaw_input: (right ? 1 : 0) - (left ? 1 : 0),
+    throttle: up ? 1 : down ? 0 : CRUISE_THROTTLE,
+    shoot,
+  };
+}
+
 export default function Home() {
   const {
     frames,
@@ -30,10 +76,14 @@ export default function Home() {
     setSpeed,
     matchResult,
     isConnected,
+    isHumanMatch,
     startMatch,
+    sendHumanInput,
   } = useMatch();
 
   const [spawnFrame, setSpawnFrame] = useState<Frame>(DEFAULT_FRAME);
+  const pressedKeysRef = useRef<Set<string>>(new Set());
+  const lastInputRef = useRef<string>("");
 
   // Fetch starting positions for a given seed
   const fetchSpawn = useCallback(async (seed: number) => {
@@ -65,6 +115,65 @@ export default function Home() {
   const handleStartMatch = (config: MatchConfig) => {
     startMatch(config);
   };
+
+  useEffect(() => {
+    if (!isConnected || !isHumanMatch) return;
+
+    const sendCurrentInput = () => {
+      const input = computeHumanInput(pressedKeysRef.current);
+      const signature = JSON.stringify(input);
+      if (signature === lastInputRef.current) return;
+      lastInputRef.current = signature;
+      sendHumanInput(input);
+    };
+
+    const resetInput = () => {
+      if (pressedKeysRef.current.size === 0) return;
+      pressedKeysRef.current.clear();
+      sendCurrentInput();
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+      const normalized = normalizeControlKey(e.key);
+      if (!normalized) return;
+      e.preventDefault();
+
+      if (!pressedKeysRef.current.has(normalized)) {
+        pressedKeysRef.current.add(normalized);
+        sendCurrentInput();
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      const normalized = normalizeControlKey(e.key);
+      if (!normalized) return;
+      e.preventDefault();
+
+      if (pressedKeysRef.current.delete(normalized)) {
+        sendCurrentInput();
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) resetInput();
+    };
+
+    sendCurrentInput();
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", resetInput);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", resetInput);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      resetInput();
+      lastInputRef.current = "";
+    };
+  }, [isConnected, isHumanMatch, sendHumanInput]);
 
   return (
     <div className="w-screen h-screen flex flex-col bg-[#f8f8f8]">
