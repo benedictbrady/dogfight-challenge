@@ -9,6 +9,20 @@ interface MatchSetupProps {
   isConnected: boolean;
 }
 
+const OPPONENT_RANK: Record<string, number> = {
+  chaser: 1,
+  ace: 2,
+  dogfighter: 3,
+  brawler: 4,
+};
+
+const OPPONENT_DOTS: Record<string, string> = {
+  chaser: "\u2022",
+  ace: "\u2022\u2022",
+  dogfighter: "\u2022\u2022\u2022",
+  brawler: "\u2022\u2022\u2022\u2022",
+};
+
 export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: MatchSetupProps) {
   const [userModels, setUserModels] = useState<string[]>([]);
   const [opponents, setOpponents] = useState<string[]>([]);
@@ -33,6 +47,7 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
           const models: string[] = data.user_models ?? [];
           const opps: string[] = data.opponents ?? [];
           setUserModels(models);
+          opps.sort((a, b) => (OPPONENT_RANK[a] ?? 99) - (OPPONENT_RANK[b] ?? 99));
           setOpponents(opps);
           setServerOnline(true);
           if (models.length > 0) setP0(models[0]);
@@ -89,7 +104,9 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
             onChange={(e) => setP1(e.target.value)}
           >
             {opponents.map((o) => (
-              <option key={o} value={o}>{o}</option>
+              <option key={o} value={o}>
+                {o}{OPPONENT_DOTS[o] ? ` ${OPPONENT_DOTS[o]}` : ""}
+              </option>
             ))}
           </select>
         ) : (
