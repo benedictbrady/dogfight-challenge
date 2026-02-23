@@ -77,9 +77,9 @@ export default function Arena() {
         lineWidth={3}
       />
 
-      {/* Ground death zone: semi-transparent red fill below */}
-      <mesh position={[0, (GROUND_DEATH_Y + ARENA_MIN_Y - 30) / 2, -0.5]}>
-        <planeGeometry args={[ARENA_MAX_X - ARENA_MIN_X, GROUND_DEATH_Y - ARENA_MIN_Y + 30]} />
+      {/* Ground death zone: semi-transparent red fill below the line */}
+      <mesh position={[0, GROUND_DEATH_Y / 2, -0.5]}>
+        <planeGeometry args={[ARENA_MAX_X - ARENA_MIN_X, GROUND_DEATH_Y]} />
         <meshBasicMaterial color="#dc2626" transparent opacity={0.12} />
       </mesh>
 
