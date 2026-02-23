@@ -20,8 +20,6 @@ A **stateless ONNX model**. That's it.
 
 Output clamping: yaw `[-1, 1]`, throttle `[0, 1]`, shoot fires if `> 0`.
 
-Stateless means no RNNs or LSTMs — the sim gives you temporal context by stacking 4 frames of observations.
-
 ---
 
 ## Quick Start
@@ -42,6 +40,26 @@ make viz      # Terminal 2 — frontend on :3000
 ```
 
 Open [http://localhost:3000](http://localhost:3000) to watch matches live.
+
+---
+
+## Human Keyboard Play (Optional)
+
+You can fly **Player 0** manually in the web app:
+
+1. Start backend + frontend:
+   - `make serve`
+   - `make viz`
+2. In **Match Setup**, set **Your Model (Blue)** to `Human (Keyboard)`.
+3. Pick any opponent for **Player 1** and start a match.
+
+Keyboard controls:
+- Turn: `A/D` or `Left/Right`
+- Throttle: `W/S` or `Up/Down`
+- Shoot: `Space`
+- Debug panel toggle: `P`
+
+Visualizer camera is fixed and centered on the arena (no pan/zoom controls).
 
 ---
 

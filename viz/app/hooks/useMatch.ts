@@ -46,6 +46,12 @@ export interface MatchConfig {
   randomize_spawns?: boolean;
 }
 
+export interface HumanInput {
+  yaw_input: number;
+  throttle: number;
+  shoot: boolean;
+}
+
 const OUTCOME_TO_WINNER: Record<string, number | null> = {
   Player0Win: 0,
   Player1Win: 1,
@@ -61,9 +67,11 @@ export function useMatch() {
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [isHumanMatch, setIsHumanMatch] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const playbackRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isHumanMatchRef = useRef(false);
 
   // Playback timer
   useEffect(() => {
@@ -95,6 +103,10 @@ export function useMatch() {
   }, [isPlaying, speed, frames.length]);
 
   const startMatch = useCallback((config: MatchConfig) => {
+    const humanMatch = config.p0 === "human" || config.p1 === "human";
+    isHumanMatchRef.current = humanMatch;
+    setIsHumanMatch(humanMatch);
+
     // Close existing connection
     if (wsRef.current) {
       wsRef.current.close();
@@ -127,13 +139,21 @@ export function useMatch() {
             bullets: msg.bullets ?? [],
             hits: [],
           };
-          setFrames((prev) => {
-            // Auto-start playback once we have a few frames buffered
-            if (prev.length === 10) {
-              setIsPlaying(true);
-            }
-            return [...prev, frame];
-          });
+          if (isHumanMatchRef.current) {
+            setFrames((prev) => {
+              const next = [...prev, frame];
+              setCurrentFrameIndex(next.length - 1);
+              return next;
+            });
+          } else {
+            setFrames((prev) => {
+              // Auto-start playback once we have a few frames buffered
+              if (prev.length === 10) {
+                setIsPlaying(true);
+              }
+              return [...prev, frame];
+            });
+          }
         } else if (msg.type === "result") {
           const winner = OUTCOME_TO_WINNER[msg.outcome] ?? null;
           setMatchResult({
@@ -141,6 +161,7 @@ export function useMatch() {
             reason: msg.reason ?? "",
           });
           setIsComplete(true);
+          setIsPlaying(false);
         } else if (msg.type === "error") {
           console.error("Match error:", msg.error);
         }
@@ -157,6 +178,21 @@ export function useMatch() {
       console.error("WebSocket error:", error);
       setIsConnected(false);
     };
+  }, []);
+
+  const sendHumanInput = useCallback((input: HumanInput) => {
+    if (!isHumanMatchRef.current) return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    ws.send(
+      JSON.stringify({
+        type: "input",
+        yaw_input: input.yaw_input,
+        throttle: input.throttle,
+        shoot: input.shoot,
+      })
+    );
   }, []);
 
   // Cleanup on unmount
@@ -179,6 +215,8 @@ export function useMatch() {
     matchResult,
     isConnected,
     isComplete,
+    isHumanMatch,
     startMatch,
+    sendHumanInput,
   };
 }

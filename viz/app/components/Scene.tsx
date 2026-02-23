@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import Arena from "./Arena";
 import Fighter from "./Fighter";
@@ -29,15 +28,6 @@ function SceneContent({ frame, trailFrames }: SceneProps) {
   return (
     <>
       <color attach="background" args={["#f8f8f8"]} />
-
-      <OrbitControls
-        enableRotate={false}
-        enableDamping
-        dampingFactor={0.15}
-        maxDistance={2000}
-        minDistance={100}
-        target={[0, 300, 0]}
-      />
 
       <Arena />
 
@@ -73,6 +63,10 @@ export default function Scene({ frame, trailFrames }: SceneProps) {
   return (
     <Canvas
       orthographic
+      onCreated={({ camera }) => {
+        camera.lookAt(0, 300, 0);
+        camera.updateProjectionMatrix();
+      }}
       camera={{
         position: [0, 300, 500],
         zoom: 0.95,

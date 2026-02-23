@@ -14,6 +14,7 @@ use dogfight_validator::OnnxPolicy;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::LazyLock;
+use tokio::time::{interval, Duration, MissedTickBehavior};
 use tower_http::cors::CorsLayer;
 
 /// Discover ONNX model names from a single directory.
@@ -36,6 +37,7 @@ fn discover_onnx_in(dir: &str) -> Vec<String> {
 
 /// Scripted opponent names always available in the GUI.
 const SCRIPTED_OPPONENTS: &[&str] = &["chaser", "dogfighter", "ace", "brawler"];
+const HUMAN_POLICY_NAME: &str = "human";
 
 /// Structured policy lists for the GUI.
 #[derive(Debug, Clone, Serialize)]
@@ -109,6 +111,16 @@ struct ErrorMessage {
     error: String,
 }
 
+/// Live human input message sent after initial config.
+#[derive(Debug, Deserialize)]
+struct HumanInputMessage {
+    #[serde(rename = "type")]
+    msg_type: String,
+    yaw_input: Option<f32>,
+    throttle: Option<f32>,
+    shoot: Option<bool>,
+}
+
 // ---------------------------------------------------------------------------
 // Policy resolution
 // ---------------------------------------------------------------------------
@@ -151,6 +163,55 @@ fn load_onnx_policy(path: &Path) -> Option<Box<dyn Policy>> {
             None
         }
     }
+}
+
+fn is_human_policy(name: &str) -> bool {
+    name == HUMAN_POLICY_NAME
+}
+
+fn is_valid_policy(name: &str) -> bool {
+    let lists = &*POLICY_LISTS;
+    is_human_policy(name)
+        || lists.user_models.iter().any(|p| p == name)
+        || lists.opponents.iter().any(|p| p == name)
+        || name.ends_with(".onnx")
+}
+
+async fn send_frame(socket: &mut WebSocket, frame: &ReplayFrame) -> Result<(), axum::Error> {
+    let msg = FrameMessage {
+        msg_type: "frame",
+        tick: frame.tick,
+        fighters: frame.fighters.to_vec(),
+        bullets: frame.bullets.clone(),
+    };
+    let json = match serde_json::to_string(&msg) {
+        Ok(j) => j,
+        Err(_) => return Ok(()),
+    };
+    socket.send(Message::Text(json.into())).await
+}
+
+async fn send_result(socket: &mut WebSocket, result: &MatchResult) -> Result<(), axum::Error> {
+    let result_msg = ResultMessage {
+        msg_type: "result",
+        outcome: result.outcome,
+        reason: result.reason,
+        final_tick: result.final_tick,
+        stats: StatsPayload {
+            p0_hp: result.stats.p0_hp,
+            p1_hp: result.stats.p1_hp,
+            p0_hits: result.stats.p0_hits,
+            p1_hits: result.stats.p1_hits,
+            p0_shots: result.stats.p0_shots,
+            p1_shots: result.stats.p1_shots,
+        },
+    };
+
+    let json = match serde_json::to_string(&result_msg) {
+        Ok(j) => j,
+        Err(_) => return Ok(()),
+    };
+    socket.send(Message::Text(json.into())).await
 }
 
 // ---------------------------------------------------------------------------
@@ -207,26 +268,20 @@ async fn handle_socket(mut socket: WebSocket) {
         }
     };
 
-    // 2. Validate policy names before resolving (to send error over WS).
-    fn is_valid_policy(name: &str) -> bool {
-        let lists = &*POLICY_LISTS;
-        lists.user_models.iter().any(|p| p == name)
-            || lists.opponents.iter().any(|p| p == name)
-            || name.ends_with(".onnx")
-    }
-
     for (label, name) in [("p0", &req.p0), ("p1", &req.p1)] {
         if !is_valid_policy(name) {
-            let _ = send_error(
-                &mut socket,
-                &format!("unknown policy for {label}: {name}"),
-            )
-            .await;
+            let _ = send_error(&mut socket, &format!("unknown policy for {label}: {name}")).await;
             return;
         }
     }
 
-    // 3. Build match config and run the match on a blocking thread so that
+    // 3. If either side is human-controlled, run a live interactive match.
+    if is_human_policy(&req.p0) || is_human_policy(&req.p1) {
+        run_interactive_human_match(&mut socket, req).await;
+        return;
+    }
+
+    // 4. Build match config and run the match on a blocking thread so that
     //    `Box<dyn Policy>` (which is not `Send`) never lives across an await.
     let seed = req.seed.unwrap_or(0);
     let randomize_spawns = req.randomize_spawns.unwrap_or(false);
@@ -249,51 +304,143 @@ async fn handle_socket(mut socket: WebSocket) {
     .await
     .expect("match task panicked");
 
-    // 4. Stream each frame.
+    // 5. Stream each frame.
     for frame in &replay.frames {
-        let msg = FrameMessage {
-            msg_type: "frame",
-            tick: frame.tick,
-            fighters: frame.fighters.to_vec(),
-            bullets: frame.bullets.clone(),
-        };
-        let json = match serde_json::to_string(&msg) {
-            Ok(j) => j,
-            Err(_) => continue,
-        };
-        if socket.send(Message::Text(json.into())).await.is_err() {
+        if send_frame(&mut socket, frame).await.is_err() {
             return; // client disconnected
         }
     }
 
-    // 5. Send the result message.
-    let result_msg = ResultMessage {
-        msg_type: "result",
-        outcome: replay.result.outcome,
-        reason: replay.result.reason,
-        final_tick: replay.result.final_tick,
-        stats: StatsPayload {
-            p0_hp: replay.result.stats.p0_hp,
-            p1_hp: replay.result.stats.p1_hp,
-            p0_hits: replay.result.stats.p0_hits,
-            p1_hits: replay.result.stats.p1_hits,
-            p0_shots: replay.result.stats.p0_shots,
-            p1_shots: replay.result.stats.p1_shots,
-        },
+    // 6. Send the result message.
+    let _ = send_result(&mut socket, &replay.result).await;
+}
+
+async fn run_interactive_human_match(socket: &mut WebSocket, req: MatchRequest) {
+    if is_human_policy(&req.p0) && is_human_policy(&req.p1) {
+        let _ = send_error(socket, "only one human policy may be used per match").await;
+        return;
+    }
+
+    let human_idx = if is_human_policy(&req.p0) { 0 } else { 1 };
+    let seed = req.seed.unwrap_or(0);
+    let randomize_spawns = req.randomize_spawns.unwrap_or(false);
+
+    let mut p0 = if human_idx == 0 {
+        None
+    } else {
+        match try_resolve_policy(&req.p0) {
+            Some(policy) => Some(policy),
+            None => {
+                let _ = send_error(socket, &format!("failed to resolve policy {}", req.p0)).await;
+                return;
+            }
+        }
+    };
+    let mut p1 = if human_idx == 1 {
+        None
+    } else {
+        match try_resolve_policy(&req.p1) {
+            Some(policy) => Some(policy),
+            None => {
+                let _ = send_error(socket, &format!("failed to resolve policy {}", req.p1)).await;
+                return;
+            }
+        }
     };
 
-    let json = match serde_json::to_string(&result_msg) {
-        Ok(j) => j,
-        Err(_) => return,
+    let match_config = MatchConfig {
+        seed,
+        p0_name: req.p0,
+        p1_name: req.p1,
+        randomize_spawns,
+        ..Default::default()
     };
-    let _ = socket.send(Message::Text(json.into())).await;
+
+    let mut state = SimState::new_with_seed_and_config(
+        match_config.seed,
+        match_config.randomize_spawns,
+        match_config.sim_config,
+    );
+
+    if send_frame(socket, &state.snapshot()).await.is_err() {
+        return;
+    }
+
+    let mut p0_action = Action::none();
+    let mut p1_action = Action::none();
+    let mut human_action = Action {
+        yaw_input: 0.0,
+        throttle: 0.65,
+        shoot: false,
+    };
+
+    let mut ticker = interval(Duration::from_secs_f64(DT as f64));
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    loop {
+        tokio::select! {
+            maybe_msg = socket.recv() => {
+                match maybe_msg {
+                    Some(Ok(Message::Text(text))) => {
+                        if let Ok(input) = serde_json::from_str::<HumanInputMessage>(&text) {
+                            if input.msg_type == "input" {
+                                human_action = Action {
+                                    yaw_input: input.yaw_input.unwrap_or(0.0).clamp(-1.0, 1.0),
+                                    throttle: input.throttle.unwrap_or(0.65).clamp(0.0, 1.0),
+                                    shoot: input.shoot.unwrap_or(false),
+                                };
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None => return,
+                    Some(Ok(_)) => {}
+                    Some(Err(_)) => return,
+                }
+            }
+            _ = ticker.tick() => {
+                if state.tick >= match_config.max_ticks {
+                    break;
+                }
+
+                if state.tick % CONTROL_PERIOD == 0 {
+                    if let Some(policy) = p0.as_mut() {
+                        p0_action = policy.act(&state.observe(0));
+                    }
+                    if let Some(policy) = p1.as_mut() {
+                        p1_action = policy.act(&state.observe(1));
+                    }
+                }
+
+                let mut actions = [p0_action, p1_action];
+                actions[human_idx] = human_action;
+                state.step(&actions);
+
+                if state.tick % FRAME_INTERVAL == 0 && send_frame(socket, &state.snapshot()).await.is_err() {
+                    return;
+                }
+
+                if state.is_terminal() || state.tick >= match_config.max_ticks {
+                    if state.tick % FRAME_INTERVAL != 0 && send_frame(socket, &state.snapshot()).await.is_err() {
+                        return;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    let (outcome, reason) = state.outcome();
+    let result = MatchResult {
+        outcome,
+        reason,
+        final_tick: state.tick,
+        stats: state.stats,
+    };
+    let _ = send_result(socket, &result).await;
 }
 
 /// Send a JSON error message over the WebSocket and close.
-async fn send_error(
-    socket: &mut WebSocket,
-    error: &str,
-) -> Result<(), axum::Error> {
+async fn send_error(socket: &mut WebSocket, error: &str) -> Result<(), axum::Error> {
     let msg = ErrorMessage {
         msg_type: "error",
         error: error.to_string(),

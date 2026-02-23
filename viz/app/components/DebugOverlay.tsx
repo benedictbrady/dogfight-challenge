@@ -63,7 +63,7 @@ export default function DebugOverlay({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "d" || e.key === "D") {
+      if (e.key === "p" || e.key === "P") {
         if (
           e.target instanceof HTMLInputElement ||
           e.target instanceof HTMLTextAreaElement
@@ -129,7 +129,7 @@ export default function DebugOverlay({
   return (
     <div className="absolute top-12 right-2 z-50 bg-black/80 text-white text-[10px] font-mono p-2 rounded border border-white/20 pointer-events-none select-none min-w-[340px]">
       <div className="text-[11px] font-bold mb-1 text-yellow-400">
-        DEBUG (press D to hide)
+        DEBUG (press P to hide)
       </div>
 
       <div className="mb-1 text-gray-400">
