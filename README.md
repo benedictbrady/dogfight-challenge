@@ -31,10 +31,10 @@ Stateless means no RNNs or LSTMs — the sim gives you temporal context by stack
 make build
 
 # Validate your model meets the spec
-make validate MODEL=your_model.onnx
+make validate MODEL=models/starter.onnx
 
 # Fight the strongest built-in opponent
-make run P0=your_model.onnx P1=brawler
+make run P0=models/starter.onnx P1=brawler
 
 # Watch in the browser
 make serve    # Terminal 1 — backend on :3001
@@ -118,9 +118,9 @@ Pre-trained ONNX baselines are in `baselines/` for reference.
 ```bash
 make build                                    # Build everything
 make run P0=chaser P1=ace SEED=42             # Single match
-make run P0=your_model.onnx P1=brawler        # Test your model
+make run P0=models/starter.onnx P1=brawler    # Test your model
 make tournament POLICIES=chaser,ace,brawler ROUNDS=10
-make validate MODEL=your_model.onnx           # Check spec compliance
+make validate MODEL=models/starter.onnx       # Check spec compliance
 make serve                                    # WebSocket server (:3001)
 make viz                                      # Frontend dev server (:3000)
 make test                                     # Run all tests
@@ -139,6 +139,7 @@ crates/
   cli/         CLI: run, serve, tournament, validate
 
 baselines/     Pre-trained ONNX baseline models
+models/        User models — starter.onnx included as a starting point
 viz/           Next.js + React Three Fiber frontend
 ```
 
