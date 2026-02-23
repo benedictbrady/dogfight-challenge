@@ -47,12 +47,7 @@ struct PolicyLists {
 static POLICY_LISTS: LazyLock<PolicyLists> = LazyLock::new(|| {
     let user_models = discover_onnx_in("models");
 
-    let mut opponents: Vec<String> = discover_onnx_in("baselines");
-    for &name in SCRIPTED_OPPONENTS {
-        if !opponents.contains(&name.to_string()) {
-            opponents.push(name.to_string());
-        }
-    }
+    let mut opponents: Vec<String> = SCRIPTED_OPPONENTS.iter().map(|s| s.to_string()).collect();
     opponents.sort();
 
     PolicyLists {
@@ -120,15 +115,18 @@ struct ErrorMessage {
 
 /// Resolve a policy by name, returning `None` for unknown names.
 ///
-/// Priority: baselines/ ONNX > models/ ONNX > .onnx path > scripted Rust fallback.
+/// Priority: scripted Rust opponents > models/ ONNX > .onnx path.
 fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
-    // 1. Check baselines/ directory (BC-trained imitation models)
-    let baseline_path = Path::new("baselines").join(format!("{name}.onnx"));
-    if baseline_path.exists() {
-        return load_onnx_policy(&baseline_path);
+    // 1. Scripted Rust opponents
+    match name {
+        "chaser" => return Some(Box::new(ChaserPolicy::new())),
+        "dogfighter" => return Some(Box::new(DogfighterPolicy::new())),
+        "ace" => return Some(Box::new(AcePolicy::new())),
+        "brawler" => return Some(Box::new(BrawlerPolicy::new())),
+        _ => {}
     }
 
-    // 2. Check models/ directory (RL-trained models)
+    // 2. Check models/ directory (user-trained ONNX models)
     let model_path = Path::new("models").join(format!("{name}.onnx"));
     if model_path.exists() {
         return load_onnx_policy(&model_path);
@@ -139,14 +137,7 @@ fn try_resolve_policy(name: &str) -> Option<Box<dyn Policy>> {
         return load_onnx_policy(Path::new(name));
     }
 
-    // 4. Scripted Rust fallback (used by CLI/tests, not shown in GUI)
-    match name {
-        "chaser" => Some(Box::new(ChaserPolicy::new())),
-        "dogfighter" => Some(Box::new(DogfighterPolicy::new())),
-        "ace" => Some(Box::new(AcePolicy::new())),
-        "brawler" => Some(Box::new(BrawlerPolicy::new())),
-        _ => None,
-    }
+    None
 }
 
 fn load_onnx_policy(path: &Path) -> Option<Box<dyn Policy>> {

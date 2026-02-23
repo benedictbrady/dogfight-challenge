@@ -14,8 +14,7 @@ __pycache__/
 # Training artifacts
 training/
 
-# ONNX models (except tracked baselines)
+# ONNX models (except tracked user models)
 *.onnx
 *.onnx.data
-!baselines/*.onnx
 !models/starter.onnx

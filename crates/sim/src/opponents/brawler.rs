@@ -108,25 +108,30 @@ impl BrawlerPolicy {
 
         let new_phase = match self.phase {
             BrawlerPhase::Close => {
-                if ts.distance < 200.0 {
+                if ts.altitude < 130.0 {
+                    Some(BrawlerPhase::Retreat)
+                } else if ts.distance < 200.0 {
                     Some(BrawlerPhase::Brawl)
                 } else {
                     None
                 }
             }
             BrawlerPhase::Brawl => {
-                if ts.distance > 300.0 {
+                if ts.altitude < 120.0 {
+                    // Retreat regardless of speed — prevents oscillation at altitude_safety boundary
+                    Some(BrawlerPhase::Retreat)
+                } else if ts.distance > 300.0 {
                     Some(BrawlerPhase::Close)
                 } else if ts.opponent_behind_me && ts.distance < 180.0 && ts.closing_rate > 30.0 {
                     Some(BrawlerPhase::OvershootBait)
-                } else if ts.altitude < 120.0 && ts.my_speed < 60.0 {
-                    Some(BrawlerPhase::Retreat)
                 } else {
                     None
                 }
             }
             BrawlerPhase::OvershootBait => {
-                if ts.am_behind_opponent || (ts.angle_off_nose.abs() < 1.0 && ts.distance < 200.0) {
+                if ts.altitude < 140.0 {
+                    Some(BrawlerPhase::Retreat)
+                } else if ts.am_behind_opponent || (ts.angle_off_nose.abs() < 1.0 && ts.distance < 200.0) {
                     Some(BrawlerPhase::OvershootPunish)
                 } else if ts.distance > 250.0 {
                     Some(BrawlerPhase::Close)
@@ -144,7 +149,7 @@ impl BrawlerPolicy {
                 }
             }
             BrawlerPhase::Retreat => {
-                if ts.altitude > 180.0 && ts.my_speed > 80.0 {
+                if ts.altitude > 220.0 && ts.my_speed > 80.0 {
                     Some(BrawlerPhase::Close)
                 } else {
                     None

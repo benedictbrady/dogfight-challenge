@@ -109,7 +109,7 @@ Test your model against these, from weakest to strongest:
 | `ace` | Energy fighting, perpendicular breaks, altitude advantage |
 | `brawler` | Close-range turn fighting, exploits rear-aspect armor |
 
-Pre-trained ONNX baselines are in `baselines/` for reference.
+Built-in opponents run as native Rust code in the server — no ONNX approximation.
 
 ---
 
@@ -138,7 +138,6 @@ crates/
   server/      WebSocket server — streams match frames
   cli/         CLI: run, serve, tournament, validate
 
-baselines/     Pre-trained ONNX baseline models
 models/        User models — starter.onnx included as a starting point
 viz/           Next.js + React Three Fiber frontend
 ```

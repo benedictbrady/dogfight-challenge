@@ -231,10 +231,22 @@ pub fn yaw_toward(desired: f32, current: f32, gain: f32) -> f32 {
 
 /// Emergency altitude safety override. Returns Some(yaw_input) if an emergency
 /// pull-up or push-down is needed, None otherwise.
+///
+/// Uses graduated response: the lower the altitude, the less permissive the
+/// trigger conditions. This prevents ground crashes which are instant death.
 pub fn altitude_safety(altitude: f32, yaw: f32) -> Option<f32> {
-    // Emergency ground avoidance (ground = death)
-    if altitude < 100.0 && yaw.sin() < -0.1 {
-        let pull_up = if yaw.cos() > 0.0 { 1.0 } else { -1.0 };
+    let pull_up = if yaw.cos() > 0.0 { 1.0 } else { -1.0 };
+
+    // Layer 1: Critical — very low, pull up unless climbing steeply
+    if altitude < 50.0 && yaw.sin() < 0.5 {
+        return Some(pull_up);
+    }
+    // Layer 2: Emergency — low and descending
+    if altitude < 100.0 && yaw.sin() < 0.0 {
+        return Some(pull_up);
+    }
+    // Layer 3: Caution — moderately low and diving steeply
+    if altitude < 150.0 && yaw.sin() < -0.3 {
         return Some(pull_up);
     }
     // Emergency ceiling avoidance
@@ -347,6 +359,48 @@ mod tests {
         // Low altitude, diving — should get pull-up
         let result = altitude_safety(50.0, -1.0);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_altitude_safety_critical_level() {
+        // Very low altitude, level — should trigger
+        let result = altitude_safety(40.0, 0.0);
+        assert!(result.is_some(), "Below 50m and level should trigger");
+    }
+
+    #[test]
+    fn test_altitude_safety_critical_climbing() {
+        // Very low altitude but climbing steeply — should NOT trigger
+        let result = altitude_safety(40.0, 1.2);
+        assert!(result.is_none(), "Below 50m but climbing steeply should not trigger");
+    }
+
+    #[test]
+    fn test_altitude_safety_low_descending() {
+        // Low altitude and descending — should trigger
+        let result = altitude_safety(80.0, -0.2);
+        assert!(result.is_some(), "Below 100m and descending should trigger");
+    }
+
+    #[test]
+    fn test_altitude_safety_low_level() {
+        // Low altitude, level flight — should NOT trigger (conservative)
+        let result = altitude_safety(80.0, 0.1);
+        assert!(result.is_none(), "Below 100m but climbing slightly should not trigger");
+    }
+
+    #[test]
+    fn test_altitude_safety_moderate_steep_dive() {
+        // Moderate altitude, steep dive — should trigger
+        let result = altitude_safety(130.0, -0.5);
+        assert!(result.is_some(), "Below 150m and diving steeply should trigger");
+    }
+
+    #[test]
+    fn test_altitude_safety_moderate_shallow_dive() {
+        // Moderate altitude, shallow dive — should NOT trigger
+        let result = altitude_safety(130.0, -0.2);
+        assert!(result.is_none(), "Below 150m but shallow dive should not trigger");
     }
 
     #[test]

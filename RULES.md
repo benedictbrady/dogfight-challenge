@@ -98,6 +98,6 @@ Round-robin tournament: Win by elimination = 3 pts, Win by HP = 2 pts, Draw = 1 
 make validate MODEL=your_model.onnx
 ```
 
-## Baseline Models
+## Built-in Opponents
 
-Pre-trained ONNX baselines in `baselines/`: chaser, dogfighter, ace, brawler.
+Four scripted Rust opponents with increasing difficulty: chaser, dogfighter, ace, brawler.

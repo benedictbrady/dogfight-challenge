@@ -88,12 +88,15 @@ impl AcePolicy {
         let mut evade_yaw = self.evade_dir;
 
         // Don't evade into ground (ground = death)
-        if ts.altitude < 120.0 && evade_yaw < 0.0 && ts.my_yaw.sin() < 0.0 {
-            evade_yaw = 1.0;
+        // evade_yaw * cos(yaw) < 0 means evasion is pushing nose downward
+        let evading_downward = evade_yaw * ts.my_yaw.cos() < 0.0;
+        if ts.altitude < 120.0 && evading_downward && ts.my_yaw.sin() < 0.1 {
+            evade_yaw = if ts.my_yaw.cos() > 0.0 { 1.0 } else { -1.0 };
         }
         // Don't evade into ceiling
-        if ts.altitude > 540.0 && evade_yaw > 0.0 && ts.my_yaw.sin() > 0.0 {
-            evade_yaw = -1.0;
+        let evading_upward = evade_yaw * ts.my_yaw.cos() > 0.0;
+        if ts.altitude > 540.0 && evading_upward && ts.my_yaw.sin() > 0.0 {
+            evade_yaw = if ts.my_yaw.cos() > 0.0 { -1.0 } else { 1.0 };
         }
 
         let (yaw_input, min_throttle) = stall_avoidance(ts.my_speed, evade_yaw);

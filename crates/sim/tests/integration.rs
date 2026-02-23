@@ -195,3 +195,89 @@ fn test_matchup_balance_overview() {
         );
     }
 }
+
+#[test]
+fn test_ground_crash_rate() {
+    // Verify that opponents rarely crash into the ground.
+    // A ground crash is detected when a fighter dies (HP=0 in stats due to alive=false)
+    // but wasn't eliminated by bullet damage (opponent didn't land enough hits).
+    // Since HP is updated from fighter.hp each tick, and ground death sets alive=false
+    // without reducing HP, we detect crashes as: player lost AND their hp > 0.
+    let policies: [&str; 4] = ["chaser", "ace", "dogfighter", "brawler"];
+    let n_seeds: u64 = 20;
+    let mut total_ground_deaths = 0u32;
+    let mut total_fighter_deaths = 0u32;
+
+    for p0_name in &policies {
+        for p1_name in &policies {
+            if p0_name == p1_name { continue; }
+
+            for seed in 0..n_seeds {
+                let config = MatchConfig {
+                    seed,
+                    p0_name: p0_name.to_string(),
+                    p1_name: p1_name.to_string(),
+                    ..Default::default()
+                };
+
+                let mut p0: Box<dyn dogfight_sim::Policy> = match *p0_name {
+                    "chaser" => Box::new(ChaserPolicy::new()),
+                    "dogfighter" => Box::new(DogfighterPolicy::new()),
+                    "ace" => Box::new(AcePolicy::new()),
+                    "brawler" => Box::new(BrawlerPolicy::new()),
+                    _ => unreachable!(),
+                };
+                let mut p1: Box<dyn dogfight_sim::Policy> = match *p1_name {
+                    "chaser" => Box::new(ChaserPolicy::new()),
+                    "dogfighter" => Box::new(DogfighterPolicy::new()),
+                    "ace" => Box::new(AcePolicy::new()),
+                    "brawler" => Box::new(BrawlerPolicy::new()),
+                    _ => unreachable!(),
+                };
+
+                let replay = run_match(&config, p0.as_mut(), p1.as_mut());
+
+                // Check for ground crashes
+                match replay.result.outcome {
+                    MatchOutcome::Player0Win => {
+                        total_fighter_deaths += 1;
+                        // P1 lost — check if ground crash (HP > 0 means not killed by bullets)
+                        if replay.result.stats.p1_hp > 0 {
+                            total_ground_deaths += 1;
+                            println!("GROUND CRASH: {} (p1) vs {} (p0), seed={}, p1_hp={}",
+                                p1_name, p0_name, seed, replay.result.stats.p1_hp);
+                        }
+                    }
+                    MatchOutcome::Player1Win => {
+                        total_fighter_deaths += 1;
+                        // P0 lost — check if ground crash
+                        if replay.result.stats.p0_hp > 0 {
+                            total_ground_deaths += 1;
+                            println!("GROUND CRASH: {} (p0) vs {} (p1), seed={}, p0_hp={}",
+                                p0_name, p1_name, seed, replay.result.stats.p0_hp);
+                        }
+                    }
+                    MatchOutcome::Draw => {}
+                }
+            }
+        }
+    }
+
+    let crash_rate = if total_fighter_deaths > 0 {
+        total_ground_deaths as f64 / total_fighter_deaths as f64 * 100.0
+    } else {
+        0.0
+    };
+
+    println!("\n=== GROUND CRASH SUMMARY ===");
+    println!("Total fighter deaths: {}", total_fighter_deaths);
+    println!("Ground crashes: {}", total_ground_deaths);
+    println!("Crash rate: {:.1}%", crash_rate);
+
+    // Ground crashes should be rare (<10% of deaths)
+    assert!(
+        crash_rate < 10.0,
+        "Ground crash rate too high: {:.1}% ({}/{})",
+        crash_rate, total_ground_deaths, total_fighter_deaths
+    );
+}

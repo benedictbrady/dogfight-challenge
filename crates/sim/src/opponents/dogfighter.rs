@@ -117,11 +117,9 @@ impl DogfighterPolicy {
             DogfighterMode::Attack => {
                 if ts.opponent_behind_me && ts.distance < 200.0 {
                     Some(DogfighterMode::Defend)
-                } else if ts.energy_advantage < 0.7 && ts.altitude > 100.0 {
+                } else if ts.energy_advantage < 0.5 && ts.altitude > 100.0 {
+                    // Only disengage for energy when at serious disadvantage
                     Some(DogfighterMode::Energy)
-                } else if self.attack_patience > 360 && ts.distance < 250.0 {
-                    // Fruitless attack — disengage and reset
-                    Some(DogfighterMode::Disengage)
                 } else {
                     None
                 }
@@ -129,30 +127,25 @@ impl DogfighterPolicy {
             DogfighterMode::Defend => {
                 if !ts.opponent_behind_me || ts.distance > 300.0 {
                     Some(DogfighterMode::Attack)
-                } else if ts.energy_advantage < 0.6 {
+                } else if ts.energy_advantage < 0.4 {
                     Some(DogfighterMode::Energy)
                 } else {
                     None
                 }
             }
             DogfighterMode::Energy => {
-                if ts.energy_advantage > 0.9 {
+                // Return to attack quickly — don't lap around passively
+                if ts.energy_advantage > 0.7 || ts.distance < 200.0 {
                     Some(DogfighterMode::Attack)
                 } else if ts.opponent_behind_me && ts.distance < 150.0 {
-                    // Emergency — can't stay passive when being attacked
                     Some(DogfighterMode::Defend)
                 } else {
                     None
                 }
             }
+            // Disengage removed — dogfighter should always be fighting
             DogfighterMode::Disengage => {
-                if ts.distance > 350.0 || ts.am_behind_opponent {
-                    Some(DogfighterMode::Attack)
-                } else if ts.opponent_behind_me && ts.distance < 150.0 {
-                    Some(DogfighterMode::Defend)
-                } else {
-                    None
-                }
+                Some(DogfighterMode::Attack)
             }
         };
 
@@ -162,8 +155,8 @@ impl DogfighterPolicy {
             self.mode_timer = match mode {
                 DogfighterMode::Attack => 30,
                 DogfighterMode::Defend => 45,
-                DogfighterMode::Energy => 60,
-                DogfighterMode::Disengage => 90,
+                DogfighterMode::Energy => 30,
+                DogfighterMode::Disengage => 0, // immediately transition out
             };
         }
     }
@@ -171,8 +164,9 @@ impl DogfighterPolicy {
     fn act_evade(&self, ts: &TacticalState) -> Action {
         let shoot = can_shoot(ts, 0.3, 350.0);
 
-        let evade_yaw = if ts.altitude < 80.0 && self.evade_dir < 0.0 && ts.my_yaw.sin() < 0.0 {
-            1.0
+        let evading_downward = self.evade_dir * ts.my_yaw.cos() < 0.0;
+        let evade_yaw = if ts.altitude < 80.0 && evading_downward && ts.my_yaw.sin() < 0.1 {
+            if ts.my_yaw.cos() > 0.0 { 1.0 } else { -1.0 }
         } else {
             self.evade_dir
         };
