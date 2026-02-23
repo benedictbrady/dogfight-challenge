@@ -78,15 +78,20 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
       <div>
         <label className="block text-xs text-blue-600 mb-1 font-medium">Your Model (Blue)</label>
         {userModels.length > 1 ? (
-          <select
-            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-indigo-500 focus:outline-none"
-            value={p0}
-            onChange={(e) => setP0(e.target.value)}
-          >
-            {userModels.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              className="w-full appearance-none bg-white text-gray-800 text-sm rounded px-2 py-1.5 pr-7 border border-gray-300 focus:border-indigo-500 focus:outline-none"
+              value={p0}
+              onChange={(e) => setP0(e.target.value)}
+            >
+              {userModels.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
         ) : (
           <div className="w-full bg-gray-50 text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-200">
             {userModels[0] ?? "No models found"}
@@ -98,17 +103,22 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
       <div>
         <label className="block text-xs text-red-600 mb-1 font-medium">Opponent (Red)</label>
         {opponents.length > 0 ? (
-          <select
-            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-red-500 focus:outline-none"
-            value={p1}
-            onChange={(e) => setP1(e.target.value)}
-          >
-            {opponents.map((o) => (
-              <option key={o} value={o}>
-                {o}{OPPONENT_DOTS[o] ? ` ${OPPONENT_DOTS[o]}` : ""}
-              </option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              className="w-full appearance-none bg-white text-gray-800 text-sm rounded px-2 py-1.5 pr-7 border border-gray-300 focus:border-red-500 focus:outline-none"
+              value={p1}
+              onChange={(e) => setP1(e.target.value)}
+            >
+              {opponents.map((o) => (
+                <option key={o} value={o}>
+                  {o}{OPPONENT_DOTS[o] ? ` ${OPPONENT_DOTS[o]}` : ""}
+                </option>
+              ))}
+            </select>
+            <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
         ) : (
           <div className="w-full bg-gray-50 text-gray-500 text-sm rounded px-2 py-1.5 border border-gray-200">
             No opponents available
