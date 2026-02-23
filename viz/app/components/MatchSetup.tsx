@@ -9,53 +9,9 @@ interface MatchSetupProps {
   isConnected: boolean;
 }
 
-function PlayerSelector({
-  label,
-  colorClass,
-  focusClass,
-  policies,
-  value,
-  onChange,
-}: {
-  label: string;
-  colorClass: string;
-  focusClass: string;
-  policies: string[];
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div>
-      <label className={`block text-xs ${colorClass} mb-1 font-medium`}>
-        {label}
-      </label>
-      {policies.length > 0 ? (
-        <select
-          className={`w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 ${focusClass} focus:outline-none`}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          {policies.map((pol) => (
-            <option key={pol} value={pol}>
-              {pol}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <input
-          type="text"
-          className={`w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 ${focusClass} focus:outline-none`}
-          placeholder="Policy name..."
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )}
-    </div>
-  );
-}
-
 export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: MatchSetupProps) {
-  const [policies, setPolicies] = useState<string[]>([]);
+  const [userModels, setUserModels] = useState<string[]>([]);
+  const [opponents, setOpponents] = useState<string[]>([]);
   const [p0, setP0] = useState("");
   const [p1, setP1] = useState("");
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1000000));
@@ -74,13 +30,13 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
         const res = await fetch("http://localhost:3001/api/policies");
         if (res.ok) {
           const data = await res.json();
-          const policyList = data.policies ?? data ?? [];
-          setPolicies(policyList);
+          const models: string[] = data.user_models ?? [];
+          const opps: string[] = data.opponents ?? [];
+          setUserModels(models);
+          setOpponents(opps);
           setServerOnline(true);
-          if (policyList.length > 0) {
-            setP0(policyList[0]);
-            setP1(policyList[Math.min(1, policyList.length - 1)]);
-          }
+          if (models.length > 0) setP0(models[0]);
+          if (opps.length > 0) setP1(opps[0]);
         }
       } catch {
         setServerOnline(false);
@@ -103,23 +59,45 @@ export default function MatchSetup({ onStartMatch, onSeedChange, isConnected }: 
         Match Setup
       </h2>
 
-      <PlayerSelector
-        label="Player 0 (Blue)"
-        colorClass="text-blue-600"
-        focusClass="focus:border-indigo-500"
-        policies={policies}
-        value={p0}
-        onChange={setP0}
-      />
+      {/* P0: Your Model (Blue) */}
+      <div>
+        <label className="block text-xs text-blue-600 mb-1 font-medium">Your Model (Blue)</label>
+        {userModels.length > 1 ? (
+          <select
+            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-indigo-500 focus:outline-none"
+            value={p0}
+            onChange={(e) => setP0(e.target.value)}
+          >
+            {userModels.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        ) : (
+          <div className="w-full bg-gray-50 text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-200">
+            {userModels[0] ?? "No models found"}
+          </div>
+        )}
+      </div>
 
-      <PlayerSelector
-        label="Player 1 (Red)"
-        colorClass="text-red-600"
-        focusClass="focus:border-red-500"
-        policies={policies}
-        value={p1}
-        onChange={setP1}
-      />
+      {/* P1: Opponent (Red) */}
+      <div>
+        <label className="block text-xs text-red-600 mb-1 font-medium">Opponent (Red)</label>
+        {opponents.length > 0 ? (
+          <select
+            className="w-full bg-white text-gray-800 text-sm rounded px-2 py-1.5 border border-gray-300 focus:border-red-500 focus:outline-none"
+            value={p1}
+            onChange={(e) => setP1(e.target.value)}
+          >
+            {opponents.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+        ) : (
+          <div className="w-full bg-gray-50 text-gray-500 text-sm rounded px-2 py-1.5 border border-gray-200">
+            No opponents available
+          </div>
+        )}
+      </div>
 
       {/* Seed */}
       <div>
