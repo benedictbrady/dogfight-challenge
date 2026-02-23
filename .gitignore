@@ -18,3 +18,4 @@ training/
 *.onnx
 *.onnx.data
 !baselines/*.onnx
+!models/starter.onnx

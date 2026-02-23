@@ -16,20 +16,16 @@ use std::path::Path;
 use std::sync::LazyLock;
 use tower_http::cors::CorsLayer;
 
-/// Discover ONNX model names from baselines/ and models/ directories.
-fn discover_onnx_policies() -> Vec<String> {
+/// Discover ONNX model names from a single directory.
+fn discover_onnx_in(dir: &str) -> Vec<String> {
     let mut names = Vec::new();
-    for dir in &["baselines", "models"] {
-        let dir_path = Path::new(dir);
-        if let Ok(entries) = std::fs::read_dir(dir_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "onnx") {
-                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        if !names.contains(&stem.to_string()) {
-                            names.push(stem.to_string());
-                        }
-                    }
+    let dir_path = Path::new(dir);
+    if let Ok(entries) = std::fs::read_dir(dir_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "onnx") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    names.push(stem.to_string());
                 }
             }
         }
@@ -38,9 +34,32 @@ fn discover_onnx_policies() -> Vec<String> {
     names
 }
 
-/// All available policy names shown in the GUI (ONNX models only).
-/// Scripted Rust policies are still available internally via try_resolve_policy().
-static ALL_POLICIES: LazyLock<Vec<String>> = LazyLock::new(|| discover_onnx_policies());
+/// Scripted opponent names always available in the GUI.
+const SCRIPTED_OPPONENTS: &[&str] = &["chaser", "dogfighter", "ace", "brawler"];
+
+/// Structured policy lists for the GUI.
+#[derive(Debug, Clone, Serialize)]
+struct PolicyLists {
+    user_models: Vec<String>,
+    opponents: Vec<String>,
+}
+
+static POLICY_LISTS: LazyLock<PolicyLists> = LazyLock::new(|| {
+    let user_models = discover_onnx_in("models");
+
+    let mut opponents: Vec<String> = discover_onnx_in("baselines");
+    for &name in SCRIPTED_OPPONENTS {
+        if !opponents.contains(&name.to_string()) {
+            opponents.push(name.to_string());
+        }
+    }
+    opponents.sort();
+
+    PolicyLists {
+        user_models,
+        opponents,
+    }
+});
 
 // ---------------------------------------------------------------------------
 // Serde types for WebSocket messages
@@ -147,9 +166,9 @@ fn load_onnx_policy(path: &Path) -> Option<Box<dyn Policy>> {
 // HTTP / WebSocket handlers
 // ---------------------------------------------------------------------------
 
-/// GET /api/policies -- returns available policy names (discovered from ONNX files).
-async fn get_policies() -> Json<Vec<String>> {
-    Json(ALL_POLICIES.clone())
+/// GET /api/policies -- returns structured { user_models, opponents }.
+async fn get_policies() -> Json<PolicyLists> {
+    Json(POLICY_LISTS.clone())
 }
 
 /// Query params for GET /api/spawn.
@@ -199,7 +218,10 @@ async fn handle_socket(mut socket: WebSocket) {
 
     // 2. Validate policy names before resolving (to send error over WS).
     fn is_valid_policy(name: &str) -> bool {
-        ALL_POLICIES.iter().any(|p| p == name) || name.ends_with(".onnx")
+        let lists = &*POLICY_LISTS;
+        lists.user_models.iter().any(|p| p == name)
+            || lists.opponents.iter().any(|p| p == name)
+            || name.ends_with(".onnx")
     }
 
     for (label, name) in [("p0", &req.p0), ("p1", &req.p1)] {
