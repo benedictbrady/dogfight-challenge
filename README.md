@@ -1,5 +1,7 @@
 # Dogfight Challenge
 
+![Dogfight match preview](docs/preview.png)
+
 Train a neural network to win a 2D dogfight. Submit a single ONNX file. The sim does the rest.
 
 Your model sees 224 floats describing the battlefield — your fighter, the opponent, incoming bullets — and outputs 3 floats: turn, throttle, shoot. Matches run at 120Hz physics with your model making decisions at 12Hz. Beat the built-in opponents, then compete against other players in a round-robin tournament.

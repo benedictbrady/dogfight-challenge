@@ -161,7 +161,11 @@ export function useMatch() {
             reason: msg.reason ?? "",
           });
           setIsComplete(true);
-          setIsPlaying(false);
+          // For human matches stop immediately; AI matches let the playback
+          // interval run to the end naturally (all frames already buffered).
+          if (isHumanMatchRef.current) {
+            setIsPlaying(false);
+          }
         } else if (msg.type === "error") {
           console.error("Match error:", msg.error);
         }
