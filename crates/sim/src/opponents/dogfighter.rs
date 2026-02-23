@@ -4,6 +4,7 @@ use super::tactics::*;
 use std::f32::consts::PI;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 enum DogfighterMode {
     /// Lead pursuit, throttle management, shoot when aimed
     Attack,
