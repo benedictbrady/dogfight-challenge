@@ -5,13 +5,7 @@ viz/.next/
 viz/.next_stale_*/
 viz/out/
 
-# Python
-.venv/
-__pycache__/
-*.egg-info/
-*.so
-
-# Training artifacts
+# Local training artifacts
 training/
 
 # ONNX models (except tracked user models)
