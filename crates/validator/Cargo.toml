@@ -8,4 +8,5 @@ dogfight-shared = { path = "../shared" }
 dogfight-sim = { path = "../sim" }
 ndarray = "0.16"
 ort = { version = "2.0.0-rc.11" }
+prost = "0.13"
 thiserror = "2"
