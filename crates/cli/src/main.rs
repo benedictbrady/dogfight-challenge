@@ -210,10 +210,21 @@ fn cmd_run(p0_name: &str, p1_name: &str, seed: u64, output: Option<PathBuf>, ran
 }
 
 fn cmd_validate(model_path: &Path) {
-    println!(
-        "ONNX validation requires onnxruntime library (model: {})",
-        model_path.display()
-    );
+    match dogfight_validator::validate_model_file(model_path) {
+        Ok(report) => {
+            println!("Model: {}", model_path.display());
+            println!("  File size:  {} bytes", report.file_size_bytes);
+            println!("  Parameters: {} / {} (max)", report.parameter_count, MAX_PARAMETERS);
+            println!("  Input:      {:?}", report.input_shape);
+            println!("  Output:     {:?}", report.output_shape);
+            println!("  Ops:        {}", report.ops_used.join(", "));
+            println!("  Status:     PASS");
+        }
+        Err(e) => {
+            eprintln!("Validation FAILED: {e}");
+            std::process::exit(1);
+        }
+    }
 }
 
 fn cmd_serve(port: u16) {
